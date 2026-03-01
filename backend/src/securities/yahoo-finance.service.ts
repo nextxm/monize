@@ -194,16 +194,23 @@ export class YahooFinanceService {
       const separator = url.includes("?") ? "&" : "?";
       const fullUrl = `${url}${separator}crumb=${encodeURIComponent(this.crumb!)}`;
 
-      const response = await fetch(fullUrl, {
-        headers: {
-          "User-Agent": YahooFinanceService.USER_AGENT,
-          Cookie: this.cookie!,
-        },
-        signal: AbortSignal.timeout(YahooFinanceService.FETCH_TIMEOUT_MS),
-      });
+      let response: Response;
+      try {
+        response = await fetch(fullUrl, {
+          headers: {
+            "User-Agent": YahooFinanceService.USER_AGENT,
+            Cookie: this.cookie!,
+          },
+          signal: AbortSignal.timeout(YahooFinanceService.FETCH_TIMEOUT_MS),
+        });
+      } catch (err) {
+        this.logger.error(`Yahoo Finance v10 fetch error: ${err}`);
+        return null;
+      }
 
       if (response.status === 401 && attempt === 0) {
         this.logger.warn("Yahoo Finance v10: got 401, refreshing crumb");
+        await response.text().catch(() => {}); // drain body before retry
         continue;
       }
 

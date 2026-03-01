@@ -9,7 +9,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  Cell,
 } from 'recharts';
 import { investmentsApi } from '@/lib/investments';
 import { SectorWeightingResult, Security } from '@/types/investment';
@@ -75,20 +74,28 @@ export function SectorWeightingsReport() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAccountFilter, showSecurityFilter]);
 
-  const loadData = useCallback(async () => {
+  // Load accounts and securities once on mount
+  useEffect(() => {
+    Promise.all([
+      investmentsApi.getInvestmentAccounts(),
+      investmentsApi.getSecurities(),
+    ])
+      .then(([accountsData, securitiesData]) => {
+        setAccounts(accountsData);
+        setSecurities(securitiesData);
+      })
+      .catch((error) => logger.error('Failed to load filter data:', error));
+  }, []);
+
+  // Reload weightings whenever filters change
+  const loadWeightings = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [weightingsData, accountsData, securitiesData] = await Promise.all([
-        investmentsApi.getSectorWeightings(
-          selectedAccountIds.length > 0 ? selectedAccountIds : undefined,
-          selectedSecurityIds.length > 0 ? selectedSecurityIds : undefined,
-        ),
-        investmentsApi.getInvestmentAccounts(),
-        investmentsApi.getSecurities(),
-      ]);
+      const weightingsData = await investmentsApi.getSectorWeightings(
+        selectedAccountIds.length > 0 ? selectedAccountIds : undefined,
+        selectedSecurityIds.length > 0 ? selectedSecurityIds : undefined,
+      );
       setData(weightingsData);
-      setAccounts(accountsData);
-      setSecurities(securitiesData);
     } catch (error) {
       logger.error('Failed to load sector weightings:', error);
     } finally {
@@ -97,8 +104,8 @@ export function SectorWeightingsReport() {
   }, [selectedAccountIds, selectedSecurityIds]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadWeightings();
+  }, [loadWeightings]);
 
   const toggleAccountId = (id: string) => {
     setSelectedAccountIds((prev) =>
@@ -300,16 +307,8 @@ export function SectorWeightingsReport() {
                   value === 'direct' ? 'Direct (Stocks)' : 'ETF Exposure'
                 }
               />
-              <Bar dataKey="direct" stackId="a" fill="#3b82f6" name="direct">
-                {chartData.map((_, index) => (
-                  <Cell key={`direct-${index}`} fill="#3b82f6" />
-                ))}
-              </Bar>
-              <Bar dataKey="etf" stackId="a" fill="#22c55e" name="etf" radius={[0, 4, 4, 0]}>
-                {chartData.map((_, index) => (
-                  <Cell key={`etf-${index}`} fill="#22c55e" />
-                ))}
-              </Bar>
+              <Bar dataKey="direct" stackId="a" fill="#3b82f6" name="direct" />
+              <Bar dataKey="etf" stackId="a" fill="#22c55e" name="etf" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

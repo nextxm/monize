@@ -21,7 +21,6 @@ vi.mock('recharts', () => ({
   YAxis: () => null,
   Tooltip: () => null,
   Legend: () => null,
-  Cell: () => null,
 }));
 
 const mockGetSectorWeightings = vi.fn();
