@@ -926,9 +926,14 @@ describe("BudgetReportsService", () => {
   });
 
   describe("getSavingsRate", () => {
+    const currentMonthKey = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    })();
+
     it("should return savings rate for each month", async () => {
-      const incomeRows = [{ month: "2026-02", total: "5000" }];
-      const expenseRows = [{ month: "2026-02", total: "3000" }];
+      const incomeRows = [{ month: currentMonthKey, total: "5000" }];
+      const expenseRows = [{ month: currentMonthKey, total: "3000" }];
 
       let qbCallCount = 0;
       transactionsRepository.createQueryBuilder.mockImplementation(() => {
@@ -962,8 +967,8 @@ describe("BudgetReportsService", () => {
     });
 
     it("should include split income in totals", async () => {
-      const directIncomeRows = [{ month: "2026-02", total: "2000" }];
-      const splitIncomeRows = [{ month: "2026-02", total: "3000" }];
+      const directIncomeRows = [{ month: currentMonthKey, total: "2000" }];
+      const splitIncomeRows = [{ month: currentMonthKey, total: "3000" }];
 
       let txCallCount = 0;
       transactionsRepository.createQueryBuilder.mockImplementation(() => {
@@ -1017,7 +1022,7 @@ describe("BudgetReportsService", () => {
         categories: [mockBudgetCategory, mockBudgetCategory2],
       });
 
-      const allPositiveRows = [{ month: "2026-02", total: "4000" }];
+      const allPositiveRows = [{ month: currentMonthKey, total: "4000" }];
 
       transactionsRepository.createQueryBuilder.mockImplementation(() =>
         createMockQueryBuilder({

@@ -160,4 +160,20 @@ describe('investmentsApi', () => {
     const result = await investmentsApi.getPriceStatus();
     expect(result.lastUpdated).toBe('2025-01-01');
   });
+
+  it('getSectorWeightings fetches /portfolio/sector-weightings', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [], totalPortfolioValue: 0 } });
+    await investmentsApi.getSectorWeightings();
+    expect(apiClient.get).toHaveBeenCalledWith('/portfolio/sector-weightings', {
+      params: undefined,
+    });
+  });
+
+  it('getSectorWeightings passes accountIds and securityIds as CSV', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [] } });
+    await investmentsApi.getSectorWeightings(['a1', 'a2'], ['s1']);
+    expect(apiClient.get).toHaveBeenCalledWith('/portfolio/sector-weightings', {
+      params: { accountIds: 'a1,a2', securityIds: 's1' },
+    });
+  });
 });

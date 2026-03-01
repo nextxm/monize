@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import * as https from "https";
 
 export interface YahooQuoteResult {
   symbol: string;
@@ -35,14 +36,181 @@ export interface HistoricalPrice {
   volume: number | null;
 }
 
+export interface StockSectorInfo {
+  sector: string | null;
+  industry: string | null;
+}
+
+export interface EtfSectorWeighting {
+  sector: string;
+  weight: number;
+}
+
+/** Normalize Yahoo's ETF sector keys to display names */
+const YAHOO_SECTOR_NAMES: Record<string, string> = {
+  realestate: "Real Estate",
+  consumer_cyclical: "Consumer Cyclical",
+  basic_materials: "Basic Materials",
+  consumer_defensive: "Consumer Defensive",
+  technology: "Technology",
+  communication_services: "Communication Services",
+  financial_services: "Financial Services",
+  utilities: "Utilities",
+  industrials: "Industrials",
+  healthcare: "Healthcare",
+  energy: "Energy",
+};
+
 @Injectable()
 export class YahooFinanceService {
   private readonly logger = new Logger(YahooFinanceService.name);
 
-  /**
-   * Fetch quote data from Yahoo Finance for a single symbol using v8 chart API
-   */
   private static readonly FETCH_TIMEOUT_MS = 30000;
+  private static readonly USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+  /** Cached crumb+cookie for v10 API authentication */
+  private crumb: string | null = null;
+  private cookie: string | null = null;
+  private crumbExpiresAt = 0;
+  private crumbPromise: Promise<boolean> | null = null;
+
+  /**
+   * Obtain a fresh Yahoo Finance crumb+cookie pair.
+   * Visits finance.yahoo.com for cookies, then fetches the crumb endpoint.
+   * Caches for 1 hour; concurrent calls share one in-flight request.
+   */
+  private async ensureCrumb(forceRefresh = false): Promise<boolean> {
+    if (
+      !forceRefresh &&
+      this.crumb &&
+      this.cookie &&
+      Date.now() < this.crumbExpiresAt
+    ) {
+      return true;
+    }
+
+    // Deduplicate concurrent calls
+    if (this.crumbPromise) return this.crumbPromise;
+
+    this.crumbPromise = this.fetchCrumb();
+    try {
+      return await this.crumbPromise;
+    } finally {
+      this.crumbPromise = null;
+    }
+  }
+
+  private async fetchCrumb(): Promise<boolean> {
+    try {
+      // Step 1: Visit finance.yahoo.com to get cookies
+      // Use https module instead of fetch because Yahoo's response headers
+      // exceed Node.js undici's default maxHeaderSize (16KB)
+      const cookieStr = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Cookie request timeout")),
+          YahooFinanceService.FETCH_TIMEOUT_MS,
+        );
+        https
+          .get(
+            "https://finance.yahoo.com/",
+            {
+              headers: {
+                "User-Agent": YahooFinanceService.USER_AGENT,
+                Accept: "text/html",
+              },
+              maxHeaderSize: 65536,
+            },
+            (res) => {
+              clearTimeout(timer);
+              res.resume(); // drain the response body
+              const setCookies = res.headers["set-cookie"] ?? [];
+              resolve(
+                setCookies
+                  .map((c) => c.split(";")[0])
+                  .filter(Boolean)
+                  .join("; "),
+              );
+            },
+          )
+          .on("error", (err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+      });
+
+      if (!cookieStr) {
+        this.logger.warn("Yahoo Finance: no cookies received");
+        return false;
+      }
+
+      // Step 2: Fetch crumb using cookies
+      const crumbResp = await fetch(
+        "https://query2.finance.yahoo.com/v1/test/getcrumb",
+        {
+          headers: {
+            "User-Agent": YahooFinanceService.USER_AGENT,
+            Cookie: cookieStr,
+          },
+          signal: AbortSignal.timeout(YahooFinanceService.FETCH_TIMEOUT_MS),
+        },
+      );
+
+      if (!crumbResp.ok) {
+        this.logger.warn(
+          `Yahoo Finance crumb endpoint returned ${crumbResp.status}`,
+        );
+        return false;
+      }
+
+      const crumbText = await crumbResp.text();
+      if (!crumbText || crumbText.length > 50 || crumbText.startsWith("{")) {
+        this.logger.warn("Yahoo Finance: invalid crumb response");
+        return false;
+      }
+
+      this.crumb = crumbText;
+      this.cookie = cookieStr;
+      this.crumbExpiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+      return true;
+    } catch (error) {
+      this.logger.error(
+        "Failed to obtain Yahoo Finance crumb",
+        error instanceof Error ? error.stack : undefined,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Make an authenticated v10 API request with crumb+cookie.
+   * Retries once with a fresh crumb on 401.
+   */
+  private async fetchV10(url: string): Promise<Response | null> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ok = await this.ensureCrumb(attempt > 0);
+      if (!ok) return null;
+
+      const separator = url.includes("?") ? "&" : "?";
+      const fullUrl = `${url}${separator}crumb=${encodeURIComponent(this.crumb!)}`;
+
+      const response = await fetch(fullUrl, {
+        headers: {
+          "User-Agent": YahooFinanceService.USER_AGENT,
+          Cookie: this.cookie!,
+        },
+        signal: AbortSignal.timeout(YahooFinanceService.FETCH_TIMEOUT_MS),
+      });
+
+      if (response.status === 401 && attempt === 0) {
+        this.logger.warn("Yahoo Finance v10: got 401, refreshing crumb");
+        continue;
+      }
+
+      return response;
+    }
+    return null;
+  }
 
   async fetchQuote(symbol: string): Promise<YahooQuoteResult | null> {
     try {
@@ -443,5 +611,101 @@ export class YahooFinanceService {
     };
 
     return exchangeToCurrency[exchange] || null;
+  }
+
+  /**
+   * Fetch stock sector/industry info via Yahoo Finance v10 quoteSummary API
+   */
+  async fetchStockSectorInfo(symbol: string): Promise<StockSectorInfo | null> {
+    try {
+      // Use v1/search API which returns sector/industry without auth
+      const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=5&newsCount=0`;
+
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": YahooFinanceService.USER_AGENT,
+        },
+        signal: AbortSignal.timeout(YahooFinanceService.FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        this.logger.warn(
+          `Yahoo Finance search returned ${response.status} for ${symbol}`,
+        );
+        return null;
+      }
+
+      const data = await response.json();
+      const quotes = data.quotes || [];
+
+      // Find exact symbol match
+      const match = quotes.find(
+        (q: Record<string, string>) =>
+          q.symbol?.toUpperCase() === symbol.toUpperCase(),
+      );
+
+      if (!match) {
+        return { sector: null, industry: null };
+      }
+
+      return {
+        sector: match.sector || match.sectorDisp || null,
+        industry: match.industry || match.industryDisp || null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch sector info for ${symbol}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Fetch ETF sector weightings via Yahoo Finance v10 quoteSummary API
+   */
+  async fetchEtfSectorWeightings(
+    symbol: string,
+  ): Promise<EtfSectorWeighting[] | null> {
+    try {
+      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=topHoldings`;
+
+      const response = await this.fetchV10(url);
+
+      if (!response || !response.ok) {
+        this.logger.warn(
+          `Yahoo Finance topHoldings returned ${response?.status ?? "no response"} for ${symbol}`,
+        );
+        return null;
+      }
+
+      const data = await response.json();
+      const topHoldings = data.quoteSummary?.result?.[0]?.topHoldings;
+
+      if (!topHoldings?.sectorWeightings) {
+        return [];
+      }
+
+      const weightings: EtfSectorWeighting[] = [];
+      for (const entry of topHoldings.sectorWeightings) {
+        // Each entry is like { "realestate": { "raw": 0.0234 } }
+        const key = Object.keys(entry)[0];
+        if (!key) continue;
+        const rawValue = entry[key]?.raw ?? 0;
+        if (rawValue <= 0) continue;
+
+        const displayName =
+          YAHOO_SECTOR_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1);
+        weightings.push({ sector: displayName, weight: rawValue });
+      }
+
+      return weightings;
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch ETF sector weightings for ${symbol}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return null;
+    }
   }
 }

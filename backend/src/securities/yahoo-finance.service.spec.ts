@@ -25,6 +25,13 @@ describe("YahooFinanceService", () => {
     global.fetch = jest.fn().mockRejectedValue(error);
   };
 
+  /** Pre-seed the crumb cache so v10 tests skip the auth flow */
+  const seedCrumb = () => {
+    (service as any).crumb = "test-crumb";
+    (service as any).cookie = "test-cookie";
+    (service as any).crumbExpiresAt = Date.now() + 3600000;
+  };
+
   describe("fetchQuote", () => {
     it("should fetch and return quote data for a valid symbol", async () => {
       mockFetchResponse({
@@ -817,6 +824,178 @@ describe("YahooFinanceService", () => {
 
     it("should return priority 3 for unknown exchanges", () => {
       expect(service.getExchangePriority("TEST.XX", "Unknown")).toBe(3);
+    });
+  });
+
+  describe("fetchStockSectorInfo", () => {
+    it("returns sector and industry from search API response", async () => {
+      mockFetchResponse({
+        quotes: [
+          {
+            symbol: "AAPL",
+            sector: "Technology",
+            industry: "Consumer Electronics",
+          },
+        ],
+      });
+
+      const result = await service.fetchStockSectorInfo("AAPL");
+
+      expect(result).toEqual({
+        sector: "Technology",
+        industry: "Consumer Electronics",
+      });
+    });
+
+    it("returns null when API returns non-200", async () => {
+      mockFetchResponse({}, false, 404);
+
+      const result = await service.fetchStockSectorInfo("INVALID");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns null when fetch throws (network error)", async () => {
+      mockFetchError(new Error("Network failure"));
+
+      const result = await service.fetchStockSectorInfo("AAPL");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns null sector/industry when no matching symbol found", async () => {
+      mockFetchResponse({ quotes: [{ symbol: "OTHER" }] });
+
+      const result = await service.fetchStockSectorInfo("AAPL");
+
+      expect(result).toEqual({ sector: null, industry: null });
+    });
+
+    it("uses sectorDisp fallback when sector is missing", async () => {
+      mockFetchResponse({
+        quotes: [
+          { symbol: "AAPL", sectorDisp: "Tech", industryDisp: "Electronics" },
+        ],
+      });
+
+      const result = await service.fetchStockSectorInfo("AAPL");
+
+      expect(result).toEqual({ sector: "Tech", industry: "Electronics" });
+    });
+
+    it("constructs correct search URL with encoded symbol", async () => {
+      mockFetchResponse({ quotes: [] });
+
+      await service.fetchStockSectorInfo("BRK.B");
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("v1/finance/search?q=BRK.B"),
+        expect.anything(),
+      );
+    });
+  });
+
+  describe("fetchEtfSectorWeightings", () => {
+    beforeEach(() => seedCrumb());
+
+    it("returns normalized sector array from valid topHoldings response", async () => {
+      mockFetchResponse({
+        quoteSummary: {
+          result: [
+            {
+              topHoldings: {
+                sectorWeightings: [
+                  { technology: { raw: 0.3 } },
+                  { healthcare: { raw: 0.15 } },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result).toEqual([
+        { sector: "Technology", weight: 0.3 },
+        { sector: "Healthcare", weight: 0.15 },
+      ]);
+    });
+
+    it("normalizes Yahoo keys to display names", async () => {
+      mockFetchResponse({
+        quoteSummary: {
+          result: [
+            {
+              topHoldings: {
+                sectorWeightings: [
+                  { realestate: { raw: 0.05 } },
+                  { consumer_cyclical: { raw: 0.1 } },
+                  { financial_services: { raw: 0.12 } },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result!.map((r) => r.sector)).toEqual([
+        "Real Estate",
+        "Consumer Cyclical",
+        "Financial Services",
+      ]);
+    });
+
+    it("filters out entries with weight = 0", async () => {
+      mockFetchResponse({
+        quoteSummary: {
+          result: [
+            {
+              topHoldings: {
+                sectorWeightings: [
+                  { technology: { raw: 0.3 } },
+                  { healthcare: { raw: 0 } },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result).toHaveLength(1);
+      expect(result![0].sector).toBe("Technology");
+    });
+
+    it("returns null when API returns non-200", async () => {
+      mockFetchResponse({}, false, 500);
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns null when fetch throws", async () => {
+      mockFetchError(new Error("Network failure"));
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns empty array when topHoldings has no sectorWeightings", async () => {
+      mockFetchResponse({
+        quoteSummary: {
+          result: [{ topHoldings: {} }],
+        },
+      });
+
+      const result = await service.fetchEtfSectorWeightings("VTI");
+
+      expect(result).toEqual([]);
     });
   });
 });

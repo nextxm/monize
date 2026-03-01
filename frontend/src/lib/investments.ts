@@ -10,6 +10,7 @@ import {
   CreateSecurityData,
   PaginatedInvestmentTransactions,
   TopMover,
+  SectorWeightingResult,
 } from '@/types/investment';
 import { getCached, setCache, invalidateCache } from './apiCache';
 
@@ -223,6 +224,21 @@ export const investmentsApi = {
   // Get price update status
   getPriceStatus: async (): Promise<{ lastUpdated: string | null }> => {
     const response = await apiClient.get('/securities/prices/status');
+    return response.data;
+  },
+
+  // Get sector weightings
+  getSectorWeightings: async (accountIds?: string[], securityIds?: string[]): Promise<SectorWeightingResult> => {
+    const params: Record<string, string> = {};
+    if (accountIds && accountIds.length > 0) params.accountIds = accountIds.join(',');
+    if (securityIds && securityIds.length > 0) params.securityIds = securityIds.join(',');
+    const cacheKey = `investments:sectorWeightings:${params.accountIds || 'all'}:${params.securityIds || 'all'}`;
+    const cached = getCached<SectorWeightingResult>(cacheKey);
+    if (cached) return cached;
+    const response = await apiClient.get<SectorWeightingResult>('/portfolio/sector-weightings', {
+      params: Object.keys(params).length > 0 ? params : undefined,
+    });
+    setCache(cacheKey, response.data, 60_000);
     return response.data;
   },
 };

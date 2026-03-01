@@ -14,6 +14,7 @@ import { HoldingsService } from "./holdings.service";
 import { InvestmentTransactionsService } from "./investment-transactions.service";
 import { PortfolioService } from "./portfolio.service";
 import { PortfolioCalculationService } from "./portfolio-calculation.service";
+import { SectorWeightingService } from "./sector-weighting.service";
 import { SecuritiesController } from "./securities.controller";
 import { HoldingsController } from "./holdings.controller";
 import { InvestmentTransactionsController } from "./investment-transactions.controller";
@@ -47,6 +48,7 @@ import { NetWorthModule } from "../net-worth/net-worth.module";
     InvestmentTransactionsService,
     PortfolioCalculationService,
     PortfolioService,
+    SectorWeightingService,
   ],
   controllers: [
     SecuritiesController,
@@ -61,6 +63,7 @@ import { NetWorthModule } from "../net-worth/net-worth.module";
     HoldingsService,
     InvestmentTransactionsService,
     PortfolioService,
+    SectorWeightingService,
   ],
 })
 export class SecuritiesModule {}

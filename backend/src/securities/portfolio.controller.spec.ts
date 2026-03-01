@@ -2,10 +2,12 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { BadRequestException } from "@nestjs/common";
 import { PortfolioController } from "./portfolio.controller";
 import { PortfolioService } from "./portfolio.service";
+import { SectorWeightingService } from "./sector-weighting.service";
 
 describe("PortfolioController", () => {
   let controller: PortfolioController;
   let portfolioService: Record<string, jest.Mock>;
+  let sectorWeightingService: Record<string, jest.Mock>;
 
   const req = { user: { id: "user-1" } };
   const UUID1 = "00000000-0000-0000-0000-000000000001";
@@ -19,9 +21,25 @@ describe("PortfolioController", () => {
       getInvestmentAccounts: jest.fn(),
     };
 
+    sectorWeightingService = {
+      getSectorWeightings: jest.fn().mockResolvedValue({
+        items: [],
+        totalPortfolioValue: 0,
+        totalDirectValue: 0,
+        totalEtfValue: 0,
+        unclassifiedValue: 0,
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PortfolioController],
-      providers: [{ provide: PortfolioService, useValue: portfolioService }],
+      providers: [
+        { provide: PortfolioService, useValue: portfolioService },
+        {
+          provide: SectorWeightingService,
+          useValue: sectorWeightingService,
+        },
+      ],
     }).compile();
 
     controller = module.get<PortfolioController>(PortfolioController);
@@ -140,6 +158,40 @@ describe("PortfolioController", () => {
         "user-1",
       );
       expect(result).toEqual(accounts);
+    });
+  });
+
+  describe("getSectorWeightings", () => {
+    it("delegates to service with parsed account and security IDs", async () => {
+      await controller.getSectorWeightings(req, UUID1, UUID2);
+
+      expect(sectorWeightingService.getSectorWeightings).toHaveBeenCalledWith(
+        "user-1",
+        [UUID1],
+        [UUID2],
+      );
+    });
+
+    it("passes undefined when no filters provided", async () => {
+      await controller.getSectorWeightings(req);
+
+      expect(sectorWeightingService.getSectorWeightings).toHaveBeenCalledWith(
+        "user-1",
+        undefined,
+        undefined,
+      );
+    });
+
+    it("rejects invalid UUID in accountIds", () => {
+      expect(() => controller.getSectorWeightings(req, "not-a-uuid")).toThrow(
+        BadRequestException,
+      );
+    });
+
+    it("rejects invalid UUID in securityIds", () => {
+      expect(() =>
+        controller.getSectorWeightings(req, undefined, "not-a-uuid"),
+      ).toThrow(BadRequestException);
     });
   });
 });

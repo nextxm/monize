@@ -313,6 +313,10 @@ CREATE TABLE securities (
     currency_code VARCHAR(3) NOT NULL REFERENCES currencies(code),
     is_active BOOLEAN DEFAULT true,
     skip_price_updates BOOLEAN DEFAULT false, -- for auto-generated symbols that can't be looked up
+    sector VARCHAR(100),             -- stock sector from Yahoo Finance (e.g. 'Technology')
+    industry VARCHAR(100),           -- stock industry (e.g. 'Consumer Electronics')
+    sector_weightings JSONB,         -- ETF sector breakdown [{sector, weight}]
+    sector_data_updated_at TIMESTAMP, -- cache staleness check
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, symbol)

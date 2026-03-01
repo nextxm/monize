@@ -15,6 +15,7 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
 import { PortfolioService } from "./portfolio.service";
+import { SectorWeightingService } from "./sector-weighting.service";
 
 @ApiTags("Portfolio")
 @Controller("portfolio")
@@ -24,7 +25,10 @@ export class PortfolioController {
   private static readonly UUID_REGEX =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  constructor(private readonly portfolioService: PortfolioService) {}
+  constructor(
+    private readonly portfolioService: PortfolioService,
+    private readonly sectorWeightingService: SectorWeightingService,
+  ) {}
 
   private parseAccountIds(accountIds?: string): string[] | undefined {
     if (!accountIds) return undefined;
@@ -101,5 +105,49 @@ export class PortfolioController {
   @ApiResponse({ status: 401, description: "Unauthorized" })
   getInvestmentAccounts(@Request() req) {
     return this.portfolioService.getInvestmentAccounts(req.user.id);
+  }
+
+  private parseSecurityIds(securityIds?: string): string[] | undefined {
+    if (!securityIds) return undefined;
+    const ids = securityIds.split(",").filter(Boolean);
+    for (const id of ids) {
+      if (!PortfolioController.UUID_REGEX.test(id)) {
+        throw new BadRequestException(`Invalid security UUID: ${id}`);
+      }
+    }
+    return ids;
+  }
+
+  @Get("sector-weightings")
+  @ApiOperation({
+    summary: "Get sector weightings breakdown for investment portfolio",
+  })
+  @ApiQuery({
+    name: "accountIds",
+    required: false,
+    description: "Comma-separated account IDs to filter by",
+  })
+  @ApiQuery({
+    name: "securityIds",
+    required: false,
+    description: "Comma-separated security IDs to filter by",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Sector weightings retrieved successfully",
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  getSectorWeightings(
+    @Request() req,
+    @Query("accountIds") accountIds?: string,
+    @Query("securityIds") securityIds?: string,
+  ) {
+    const aIds = this.parseAccountIds(accountIds);
+    const sIds = this.parseSecurityIds(securityIds);
+    return this.sectorWeightingService.getSectorWeightings(
+      req.user.id,
+      aIds,
+      sIds,
+    );
   }
 }

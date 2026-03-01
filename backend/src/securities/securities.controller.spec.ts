@@ -3,12 +3,14 @@ import { SecuritiesController } from "./securities.controller";
 import { SecuritiesService } from "./securities.service";
 import { SecurityPriceService } from "./security-price.service";
 import { NetWorthService } from "../net-worth/net-worth.service";
+import { SectorWeightingService } from "./sector-weighting.service";
 
 describe("SecuritiesController", () => {
   let controller: SecuritiesController;
   let securitiesService: Record<string, jest.Mock>;
   let securityPriceService: Record<string, jest.Mock>;
   let netWorthService: Record<string, jest.Mock>;
+  let sectorWeightingService: Record<string, jest.Mock>;
 
   const req = { user: { id: "user-1" } };
 
@@ -51,12 +53,17 @@ describe("SecuritiesController", () => {
       recalculateAllAccounts: jest.fn().mockResolvedValue(undefined),
     };
 
+    sectorWeightingService = {
+      ensureSectorDataByIds: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SecuritiesController],
       providers: [
         { provide: SecuritiesService, useValue: securitiesService },
         { provide: SecurityPriceService, useValue: securityPriceService },
         { provide: NetWorthService, useValue: netWorthService },
+        { provide: SectorWeightingService, useValue: sectorWeightingService },
       ],
     }).compile();
 
@@ -263,6 +270,28 @@ describe("SecuritiesController", () => {
         securityPriceService.refreshPricesForSecurities,
       ).toHaveBeenCalledWith(dto.securityIds);
       expect(result).toEqual(summary);
+    });
+
+    it("triggers sector data update as fire-and-forget", async () => {
+      securitiesService.findOne.mockResolvedValue(mockSecurity);
+      const summary = {
+        totalSecurities: 2,
+        updated: 0,
+        failed: 0,
+        skipped: 2,
+        results: [],
+        lastUpdated: new Date(),
+      };
+      securityPriceService.refreshPricesForSecurities.mockResolvedValue(
+        summary,
+      );
+
+      const dto = { securityIds: ["sec-1", "sec-2"] };
+      await controller.refreshSelectedPrices(req, dto as any);
+
+      expect(sectorWeightingService.ensureSectorDataByIds).toHaveBeenCalledWith(
+        ["sec-1", "sec-2"],
+      );
     });
 
     it("propagates error if findOne rejects (ownership check fails)", async () => {

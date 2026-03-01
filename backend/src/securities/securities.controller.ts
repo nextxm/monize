@@ -32,6 +32,7 @@ import {
   SecurityLookupResult,
 } from "./security-price.service";
 import { NetWorthService } from "../net-worth/net-worth.service";
+import { SectorWeightingService } from "./sector-weighting.service";
 import { CreateSecurityDto } from "./dto/create-security.dto";
 import { UpdateSecurityDto } from "./dto/update-security.dto";
 import { RefreshSecurityPricesDto } from "./dto/refresh-security-prices.dto";
@@ -48,6 +49,7 @@ export class SecuritiesController {
     private readonly securitiesService: SecuritiesService,
     private readonly securityPriceService: SecurityPriceService,
     private readonly netWorthService: NetWorthService,
+    private readonly sectorWeightingService: SectorWeightingService,
   ) {}
 
   @Post()
@@ -263,6 +265,14 @@ export class SecuritiesController {
           ),
         );
     }
+    // Fire-and-forget: populate sector data for securities missing it
+    this.sectorWeightingService
+      .ensureSectorDataByIds(dto.securityIds)
+      .catch((err) =>
+        this.logger.warn(
+          `Background sector data update failed: ${err.message}`,
+        ),
+      );
     return result;
   }
 

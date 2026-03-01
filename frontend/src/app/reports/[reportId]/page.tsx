@@ -25,6 +25,7 @@ const reportComponents: Record<string, React.LazyExoticComponent<React.Component
   // Investment
   'investment-performance': lazy(() => import('@/components/reports/InvestmentPerformanceReport').then(m => ({ default: m.InvestmentPerformanceReport }))),
   'dividend-income': lazy(() => import('@/components/reports/DividendIncomeReport').then(m => ({ default: m.DividendIncomeReport }))),
+  'sector-weightings': lazy(() => import('@/components/reports/SectorWeightingsReport').then(m => ({ default: m.SectorWeightingsReport }))),
   // Behavioral Insights
   'recurring-expenses': lazy(() => import('@/components/reports/RecurringExpensesReport').then(m => ({ default: m.RecurringExpensesReport }))),
   'spending-anomalies': lazy(() => import('@/components/reports/SpendingAnomaliesReport').then(m => ({ default: m.SpendingAnomaliesReport }))),
@@ -65,6 +66,7 @@ const reportNames: Record<string, string> = {
   // Investment
   'investment-performance': 'Investment Performance',
   'dividend-income': 'Dividend & Interest Income',
+  'sector-weightings': 'Sector Weightings',
   // Behavioral Insights
   'recurring-expenses': 'Recurring Expenses Tracker',
   'spending-anomalies': 'Spending Anomalies',
@@ -103,6 +105,7 @@ const reportDescriptions: Record<string, string> = {
   'loan-amortization': 'Detailed payment schedules for mortgages and loans with principal vs interest breakdown.',
   'investment-performance': 'Track portfolio returns, gains/losses, and asset allocation over time.',
   'dividend-income': 'Track passive income from dividends, interest, and other investment returns.',
+  'sector-weightings': 'Analyze portfolio sector exposure from individual stocks and ETFs.',
   'recurring-expenses': 'Identify and monitor subscriptions, memberships, and recurring charges.',
   'spending-anomalies': 'Detect unusually large transactions and spending spikes that need attention.',
   'weekend-weekday-spending': 'Analyze your spending patterns based on day of week to understand habits.',

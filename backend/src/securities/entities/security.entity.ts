@@ -65,6 +65,28 @@ export class Security {
   @Column({ type: "boolean", default: false, name: "skip_price_updates" })
   skipPriceUpdates: boolean;
 
+  @ApiProperty({
+    example: "Technology",
+    description: "Stock sector from Yahoo Finance",
+  })
+  @Column({ type: "varchar", length: 100, nullable: true })
+  sector: string | null;
+
+  @ApiProperty({
+    example: "Consumer Electronics",
+    description: "Stock industry from Yahoo Finance",
+  })
+  @Column({ type: "varchar", length: 100, nullable: true })
+  industry: string | null;
+
+  @ApiProperty({ description: "ETF sector breakdown array [{sector, weight}]" })
+  @Column({ type: "jsonb", nullable: true, name: "sector_weightings" })
+  sectorWeightings: { sector: string; weight: number }[] | null;
+
+  @ApiProperty({ description: "When sector data was last fetched from Yahoo" })
+  @Column({ type: "timestamp", nullable: true, name: "sector_data_updated_at" })
+  sectorDataUpdatedAt: Date | null;
+
   @ApiProperty()
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;

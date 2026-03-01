@@ -20,8 +20,27 @@ export interface Security {
   currencyCode: string;
   isActive: boolean;
   skipPriceUpdates: boolean;
+  sector: string | null;
+  industry: string | null;
+  sectorWeightings: { sector: string; weight: number }[] | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SectorWeightingItem {
+  sector: string;
+  directValue: number;
+  etfValue: number;
+  totalValue: number;
+  percentage: number;
+}
+
+export interface SectorWeightingResult {
+  items: SectorWeightingItem[];
+  totalPortfolioValue: number;
+  totalDirectValue: number;
+  totalEtfValue: number;
+  unclassifiedValue: number;
 }
 
 export interface Holding {
