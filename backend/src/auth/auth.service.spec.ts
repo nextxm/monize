@@ -1102,12 +1102,17 @@ describe("AuthService", () => {
       expect(usersRepository.findOne).toHaveBeenCalledTimes(1);
     });
 
-    it("links to existing user by verified email", async () => {
+    it("initiates pending link for local account with verified email (M6)", async () => {
       const existingLocal = {
         ...mockUser,
         id: "existing-user",
         authProvider: "local",
         oidcSubject: null,
+        passwordHash: "$2a$10$somehash",
+        oidcLinkPending: false,
+        oidcLinkToken: null,
+        oidcLinkExpiresAt: null,
+        pendingOidcSubject: null,
       };
       usersRepository.findOne
         .mockResolvedValueOnce(null) // no existing by oidcSubject
@@ -1121,7 +1126,34 @@ describe("AuthService", () => {
       });
 
       expect(result.id).toBe("existing-user");
-      expect(result.oidcSubject).toBe("oidc-sub-link");
+      // M6: Should initiate pending link, NOT direct link
+      expect(existingLocal.oidcLinkPending).toBe(true);
+      expect(existingLocal.pendingOidcSubject).toBe("oidc-sub-link");
+      // oidcSubject should NOT be directly set
+      expect(existingLocal.oidcSubject).toBeNull();
+    });
+
+    it("directly links OIDC-only accounts without confirmation", async () => {
+      const existingOidcOnly = {
+        ...mockUser,
+        id: "oidc-only-user",
+        authProvider: "local",
+        oidcSubject: null,
+        passwordHash: null, // No password = OIDC-only account
+      };
+      usersRepository.findOne
+        .mockResolvedValueOnce(null) // no existing by oidcSubject
+        .mockResolvedValueOnce(existingOidcOnly); // found by email
+      usersRepository.save.mockImplementation((u) => u);
+
+      const result = await service.findOrCreateOidcUser({
+        sub: "oidc-sub-direct",
+        email: "test@example.com",
+        email_verified: true,
+      });
+
+      expect(result.id).toBe("oidc-only-user");
+      expect(result.oidcSubject).toBe("oidc-sub-direct");
       expect(result.authProvider).toBe("oidc");
     });
 
@@ -2021,6 +2053,478 @@ describe("AuthService", () => {
       // Should require 2FA, no trusted device check
       expect(result.requires2FA).toBe(true);
       expect(trustedDevicesRepository.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // M4: 2FA attempt tracking
+  // ---------------------------------------------------------------
+
+  describe("verify2FA - attempt tracking (M4)", () => {
+    const jwtSecret = "test-jwt-secret-minimum-32-chars-long";
+
+    beforeEach(() => {
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+    });
+
+    it("blocks after 3 failed attempts on the same temp token", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      // 3 failed attempts
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          service.verify2FA("same-temp-token", "000000"),
+        ).rejects.toThrow("Invalid verification code");
+      }
+
+      // 4th attempt should be blocked before even checking the code
+      await expect(
+        service.verify2FA("same-temp-token", "000000"),
+      ).rejects.toThrow("Too many verification attempts");
+    });
+
+    it("allows attempts on different temp tokens independently", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      // 2 failures on token-A
+      await expect(service.verify2FA("token-A", "000000")).rejects.toThrow(
+        "Invalid verification code",
+      );
+      await expect(service.verify2FA("token-A", "000000")).rejects.toThrow(
+        "Invalid verification code",
+      );
+
+      // 1 failure on token-B
+      await expect(service.verify2FA("token-B", "000000")).rejects.toThrow(
+        "Invalid verification code",
+      );
+
+      // token-B should still have attempts remaining
+      await expect(service.verify2FA("token-B", "000000")).rejects.toThrow(
+        "Invalid verification code",
+      );
+    });
+
+    it("clears attempt counter on successful verification", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+
+      // 2 failed attempts
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+      await expect(
+        service.verify2FA("clearable-token", "000000"),
+      ).rejects.toThrow("Invalid verification code");
+      await expect(
+        service.verify2FA("clearable-token", "000000"),
+      ).rejects.toThrow("Invalid verification code");
+
+      // Successful attempt
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: true });
+      const result = await service.verify2FA("clearable-token", "123456");
+      expect(result.user).toBeDefined();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // M5: Trusted device lifetime (14 days)
+  // ---------------------------------------------------------------
+
+  describe("createTrustedDevice - M5: 14-day expiry", () => {
+    it("creates device with 14-day expiry", async () => {
+      trustedDevicesRepository.create.mockImplementation((data) => data);
+      trustedDevicesRepository.save.mockResolvedValue({});
+
+      const beforeCreate = Date.now();
+      await service.createTrustedDevice("user-1", "Mozilla/5.0", "1.2.3.4");
+
+      const savedDevice = trustedDevicesRepository.create.mock.calls[0][0];
+      const expiryMs = savedDevice.expiresAt.getTime() - beforeCreate;
+      const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+
+      // Expiry should be about 14 days (within 5 seconds tolerance)
+      expect(expiryMs).toBeGreaterThan(fourteenDaysMs - 5000);
+      expect(expiryMs).toBeLessThanOrEqual(fourteenDaysMs + 5000);
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // M7: Per-email rate limiting for forgot-password
+  // ---------------------------------------------------------------
+
+  describe("checkForgotPasswordEmailLimit (M7)", () => {
+    it("allows first 3 requests for an email", () => {
+      expect(service.checkForgotPasswordEmailLimit("test@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("test@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("test@example.com")).toBe(
+        true,
+      );
+    });
+
+    it("blocks the 4th request for the same email within the window", () => {
+      expect(service.checkForgotPasswordEmailLimit("block@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("block@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("block@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("block@example.com")).toBe(
+        false,
+      );
+    });
+
+    it("normalizes email case", () => {
+      expect(service.checkForgotPasswordEmailLimit("UPPER@Example.COM")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("upper@example.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("Upper@EXAMPLE.com")).toBe(
+        true,
+      );
+      expect(service.checkForgotPasswordEmailLimit("upper@example.com")).toBe(
+        false,
+      );
+    });
+
+    it("tracks different emails independently", () => {
+      expect(service.checkForgotPasswordEmailLimit("a@test.com")).toBe(true);
+      expect(service.checkForgotPasswordEmailLimit("a@test.com")).toBe(true);
+      expect(service.checkForgotPasswordEmailLimit("a@test.com")).toBe(true);
+      expect(service.checkForgotPasswordEmailLimit("b@test.com")).toBe(true); // different email
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // M6: OIDC link confirmation
+  // ---------------------------------------------------------------
+
+  describe("OIDC link confirmation (M6)", () => {
+    it("initiateOidcLink stores pending link data", async () => {
+      const existingUser = {
+        ...mockUser,
+        oidcLinkPending: false,
+        oidcLinkToken: null,
+        oidcLinkExpiresAt: null,
+        pendingOidcSubject: null,
+      };
+      usersRepository.save.mockImplementation((u) => u);
+
+      const token = await service.initiateOidcLink(
+        existingUser as any,
+        "oidc-sub-new",
+      );
+
+      expect(token).toBeTruthy();
+      expect(existingUser.oidcLinkPending).toBe(true);
+      expect(existingUser.pendingOidcSubject).toBe("oidc-sub-new");
+      expect(existingUser.oidcLinkToken).toBeTruthy();
+      expect(existingUser.oidcLinkExpiresAt).toBeInstanceOf(Date);
+    });
+
+    it("confirmOidcLink completes the link with valid token", async () => {
+      const futureDate = new Date(Date.now() + 3600000);
+      const pendingUser = {
+        ...mockUser,
+        oidcLinkPending: true,
+        oidcLinkExpiresAt: futureDate,
+        pendingOidcSubject: "oidc-sub-confirmed",
+      };
+      usersRepository.findOne.mockResolvedValue(pendingUser);
+      usersRepository.save.mockImplementation((u) => u);
+
+      const result = await service.confirmOidcLink("some-token");
+
+      expect(result.oidcSubject).toBe("oidc-sub-confirmed");
+      expect(result.authProvider).toBe("oidc");
+      expect(result.oidcLinkPending).toBe(false);
+      expect(result.oidcLinkToken).toBeNull();
+      expect(result.pendingOidcSubject).toBeNull();
+    });
+
+    it("confirmOidcLink throws for expired token", async () => {
+      const pastDate = new Date(Date.now() - 3600000);
+      const expiredUser = {
+        ...mockUser,
+        oidcLinkPending: true,
+        oidcLinkExpiresAt: pastDate,
+        pendingOidcSubject: "oidc-sub-expired",
+      };
+      usersRepository.findOne.mockResolvedValue(expiredUser);
+      usersRepository.save.mockImplementation((u) => u);
+
+      await expect(service.confirmOidcLink("expired-token")).rejects.toThrow(
+        "Link token has expired",
+      );
+    });
+
+    it("confirmOidcLink throws for invalid token", async () => {
+      usersRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.confirmOidcLink("invalid-token")).rejects.toThrow(
+        "Invalid or expired link token",
+      );
+    });
+
+    it("findOrCreateOidcUser initiates link instead of direct linking for local accounts", async () => {
+      const existingLocal = {
+        ...mockUser,
+        id: "local-user",
+        authProvider: "local",
+        oidcSubject: null,
+        passwordHash: "$2a$10$somehash",
+        oidcLinkPending: false,
+        oidcLinkToken: null,
+        oidcLinkExpiresAt: null,
+        pendingOidcSubject: null,
+      };
+
+      usersRepository.findOne
+        .mockResolvedValueOnce(null) // no user by oidcSubject
+        .mockResolvedValueOnce(existingLocal); // found by email
+      usersRepository.save.mockImplementation((u) => u);
+
+      const result = await service.findOrCreateOidcUser({
+        sub: "oidc-sub-link",
+        email: "test@example.com",
+        email_verified: true,
+      });
+
+      expect(result.id).toBe("local-user");
+      // Should have set oidcLinkPending to true
+      expect(existingLocal.oidcLinkPending).toBe(true);
+      expect(existingLocal.pendingOidcSubject).toBe("oidc-sub-link");
+      // oidcSubject should NOT be directly set
+      expect(existingLocal.oidcSubject).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // L5: Backup codes
+  // ---------------------------------------------------------------
+
+  describe("generateBackupCodes (L5)", () => {
+    it("generates 12 backup codes", async () => {
+      usersRepository.findOne.mockResolvedValue({ ...mockUser });
+      usersRepository.save.mockImplementation((u) => u);
+
+      const codes = await service.generateBackupCodes("user-1");
+
+      expect(codes).toHaveLength(12);
+      codes.forEach((code) => {
+        expect(code).toMatch(/^[0-9a-f]{8}$/);
+      });
+    });
+
+    it("stores hashed codes in user entity", async () => {
+      usersRepository.findOne.mockResolvedValue({ ...mockUser });
+      usersRepository.save.mockImplementation((u) => u);
+
+      await service.generateBackupCodes("user-1");
+
+      const savedUser = usersRepository.save.mock.calls[0][0];
+      expect(savedUser.backupCodes).toBeTruthy();
+      const hashedCodes = JSON.parse(savedUser.backupCodes);
+      expect(hashedCodes).toHaveLength(12);
+      // Hashed codes should be bcrypt hashes
+      hashedCodes.forEach((hash: string) => {
+        expect(hash).toMatch(/^\$2[ab]\$\d+\$/);
+      });
+    });
+
+    it("throws if user not found", async () => {
+      usersRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.generateBackupCodes("nonexistent")).rejects.toThrow(
+        "User not found",
+      );
+    });
+  });
+
+  describe("verify2FA with backup code (L5)", () => {
+    const jwtSecret = "test-jwt-secret-minimum-32-chars-long";
+
+    it("accepts a valid backup code", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      // Generate real backup codes
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+      const codes = await service.generateBackupCodes("user-1");
+
+      // Now set up user with backup codes for verify2FA
+      const savedUser = usersRepository.save.mock.calls[0][0];
+      const userWithCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: savedUser.backupCodes,
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithCodes);
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      const result = await service.verify2FA("backup-token", codes[0]);
+
+      expect(result.user).toBeDefined();
+      expect(result.accessToken).toBeDefined();
+    });
+
+    it("removes used backup code after verification", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+      const codes = await service.generateBackupCodes("user-1");
+
+      const savedUser = usersRepository.save.mock.calls[0][0];
+      const userWithCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: savedUser.backupCodes,
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithCodes);
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      await service.verify2FA("backup-used-token", codes[0]);
+
+      // After using the code, the remaining codes count should be 11
+      const updatedCodes = JSON.parse(userWithCodes.backupCodes!);
+      expect(updatedCodes).toHaveLength(11);
+    });
+
+    it("rejects invalid backup code", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      const hashedCodes = [await bcrypt.hash("abcd1234", 10)];
+      const userWithCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: JSON.stringify(hashedCodes),
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithCodes);
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      await expect(
+        service.verify2FA("bad-backup-token", "wrongcode"),
+      ).rejects.toThrow("Invalid verification code");
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // M8: Legacy TOTP migration
+  // ---------------------------------------------------------------
+
+  describe("migrateLegacyTotpSecrets (M8)", () => {
+    it("migrates legacy encrypted secrets to new format", async () => {
+      const mockQB = {
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      };
+      usersRepository.createQueryBuilder = jest.fn().mockReturnValue(mockQB);
+
+      const count = await service.migrateLegacyTotpSecrets();
+      expect(count).toBe(0);
+      expect(usersRepository.createQueryBuilder).toHaveBeenCalledWith("user");
+    });
+
+    it("counts migrated users correctly", async () => {
+      const mockQB = {
+        where: jest.fn().mockReturnThis(),
+        getMany: jest
+          .fn()
+          .mockResolvedValue([
+            { ...mockUser, twoFactorSecret: "newformat:with:four:parts" },
+          ]),
+      };
+      usersRepository.createQueryBuilder = jest.fn().mockReturnValue(mockQB);
+      usersRepository.save.mockImplementation((u) => u);
+
+      const count = await service.migrateLegacyTotpSecrets();
+      // The secret has 4 parts (new format), so isLegacyEncryption returns false
+      expect(count).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // sanitizeUser strips new fields
+  // ---------------------------------------------------------------
+
+  describe("sanitizeUser - new fields stripped", () => {
+    it("strips backupCodes and OIDC link fields", async () => {
+      usersRepository.findOne.mockResolvedValue(null);
+      const txManager = {
+        count: jest.fn().mockResolvedValue(1),
+        create: jest.fn().mockImplementation((_entity, data) => ({
+          ...data,
+          id: "user-1",
+          passwordHash: "$2a$10$hash",
+          resetToken: "reset",
+          resetTokenExpiry: new Date(),
+          twoFactorSecret: "secret",
+          backupCodes: '["hash1","hash2"]',
+          oidcLinkToken: "token",
+          oidcLinkExpiresAt: new Date(),
+          pendingOidcSubject: "sub",
+        })),
+        save: jest.fn().mockImplementation((user) => user),
+      };
+      dataSource.transaction.mockImplementation(
+        async (_isolation: string, cb: any) => cb(txManager),
+      );
+
+      const result = await service.register({
+        email: "test@example.com",
+        password: "StrongPass123!",
+      });
+
+      expect(result.user).not.toHaveProperty("backupCodes");
+      expect(result.user).not.toHaveProperty("oidcLinkToken");
+      expect(result.user).not.toHaveProperty("oidcLinkExpiresAt");
+      expect(result.user).not.toHaveProperty("pendingOidcSubject");
     });
   });
 });

@@ -82,6 +82,41 @@ export class User {
   @Column({ name: "locked_until", type: "timestamp", nullable: true })
   lockedUntil: Date | null;
 
+  @Column({ name: "backup_codes", type: "text", nullable: true })
+  @Exclude()
+  backupCodes: string | null;
+
+  @Column({
+    name: "oidc_link_pending",
+    type: "boolean",
+    default: false,
+  })
+  oidcLinkPending: boolean;
+
+  @Column({
+    name: "oidc_link_token",
+    type: "varchar",
+    nullable: true,
+  })
+  @Exclude()
+  oidcLinkToken: string | null;
+
+  @Column({
+    name: "oidc_link_expires_at",
+    type: "timestamp",
+    nullable: true,
+  })
+  @Exclude()
+  oidcLinkExpiresAt: Date | null;
+
+  @Column({
+    name: "pending_oidc_subject",
+    type: "varchar",
+    nullable: true,
+  })
+  @Exclude()
+  pendingOidcSubject: string | null;
+
   @OneToOne(() => UserPreference, (preference) => preference.user)
   preferences: UserPreference;
 }

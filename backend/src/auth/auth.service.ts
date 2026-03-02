@@ -23,7 +23,12 @@ import { TrustedDevice } from "../users/entities/trusted-device.entity";
 import { RefreshToken } from "./entities/refresh-token.entity";
 import { RegisterDto } from "./dto/register.dto";
 import { LoginDto } from "./dto/login.dto";
-import { encrypt, decrypt } from "./crypto.util";
+import {
+  encrypt,
+  decrypt,
+  isLegacyEncryption,
+  migrateFromLegacy,
+} from "./crypto.util";
 import { PasswordBreachService } from "./password-breach.service";
 import { EmailService } from "../notifications/email.service";
 import { accountLockedTemplate } from "../notifications/email-templates";
@@ -37,6 +42,19 @@ export class AuthService {
   private readonly REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
   private readonly MAX_FAILED_ATTEMPTS = 5;
   private readonly BASE_LOCKOUT_MS = 30 * 60 * 1000; // 30 minutes
+  private readonly TRUSTED_DEVICE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+  private readonly MAX_2FA_ATTEMPTS = 3;
+  private readonly BACKUP_CODE_COUNT = 12;
+  private readonly twoFactorAttempts = new Map<
+    string,
+    { count: number; expiresAt: number }
+  >();
+  private readonly forgotPasswordAttempts = new Map<
+    string,
+    { count: number; windowStart: number }
+  >();
+  private readonly FORGOT_PASSWORD_EMAIL_LIMIT = 3;
+  private readonly FORGOT_PASSWORD_EMAIL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
   constructor(
     @InjectRepository(User)
@@ -240,6 +258,15 @@ export class AuthService {
     userAgent?: string,
     ipAddress?: string,
   ) {
+    // M4: Check per-token attempt tracking before processing
+    this.cleanupExpired2FAAttempts();
+    const attemptRecord = this.twoFactorAttempts.get(tempToken);
+    if (attemptRecord && attemptRecord.count >= this.MAX_2FA_ATTEMPTS) {
+      throw new UnauthorizedException(
+        "Too many verification attempts. Please log in again.",
+      );
+    }
+
     let payload: any;
     try {
       payload = this.jwtService.verify(tempToken);
@@ -267,13 +294,37 @@ export class AuthService {
     }
 
     const secret = decrypt(user.twoFactorSecret, this.jwtSecret);
-    const isValid = otplib.verifySync({ token: code, secret }).valid;
+
+    // L5: Check backup codes before TOTP
+    let isValid = otplib.verifySync({ token: code, secret }).valid;
+
+    if (!isValid && user.backupCodes) {
+      isValid = await this.verifyBackupCode(user, code);
+    }
 
     if (!isValid) {
+      // Track failed attempt
+      const existing = this.twoFactorAttempts.get(tempToken);
+      const newCount = (existing?.count ?? 0) + 1;
+      this.twoFactorAttempts.set(tempToken, {
+        count: newCount,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      });
       this.logger.warn(
         `2FA verification failed: invalid code for user ${user.id}`,
       );
       throw new UnauthorizedException("Invalid verification code");
+    }
+
+    // M4: Clear attempt tracking on success
+    this.twoFactorAttempts.delete(tempToken);
+
+    // M8: Migrate legacy TOTP encryption if needed
+    if (isLegacyEncryption(user.twoFactorSecret)) {
+      const migrated = migrateFromLegacy(user.twoFactorSecret, this.jwtSecret);
+      if (migrated) {
+        user.twoFactorSecret = migrated;
+      }
     }
 
     // Update last login
@@ -298,6 +349,15 @@ export class AuthService {
       refreshToken,
       trustedDeviceToken,
     };
+  }
+
+  private cleanupExpired2FAAttempts(): void {
+    const now = Date.now();
+    for (const [key, value] of this.twoFactorAttempts.entries()) {
+      if (value.expiresAt <= now) {
+        this.twoFactorAttempts.delete(key);
+      }
+    }
   }
 
   async setup2FA(userId: string) {
@@ -456,17 +516,28 @@ export class AuthService {
     if (!user) {
       // SECURITY: Only link to existing account if email is verified by OIDC provider
       // This prevents account takeover via OIDC providers that don't verify emails
+      // M6: If the existing account has a password (local account), require confirmation
       if (trustedEmail) {
         const existingUser = await this.usersRepository.findOne({
           where: { email: trustedEmail },
         });
 
         if (existingUser) {
-          // Link OIDC to existing local account
-          existingUser.oidcSubject = sub;
-          existingUser.authProvider = "oidc";
-          await this.usersRepository.save(existingUser);
-          user = existingUser;
+          if (existingUser.passwordHash) {
+            // M6: Local account requires user confirmation before linking
+            await this.initiateOidcLink(existingUser, sub);
+            this.logger.warn(
+              `OIDC link pending confirmation for user ${existingUser.id}`,
+            );
+            // Return the existing user without completing the link
+            user = existingUser;
+          } else {
+            // OIDC-only account -- safe to link directly
+            existingUser.oidcSubject = sub;
+            existingUser.authProvider = "oidc";
+            await this.usersRepository.save(existingUser);
+            user = existingUser;
+          }
         }
       }
 
@@ -800,7 +871,7 @@ export class AuthService {
     const deviceToken = crypto.randomBytes(64).toString("hex");
     const tokenHash = this.hashToken(deviceToken);
     const deviceName = this.parseDeviceName(userAgent);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + this.TRUSTED_DEVICE_EXPIRY_MS);
 
     const trustedDevice = this.trustedDevicesRepository.create({
       userId,
@@ -877,6 +948,162 @@ export class AuthService {
     return device?.id || null;
   }
 
+  // L5: Backup code methods
+
+  async generateBackupCodes(userId: string): Promise<string[]> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    const codes: string[] = [];
+    for (let i = 0; i < this.BACKUP_CODE_COUNT; i++) {
+      codes.push(crypto.randomBytes(4).toString("hex")); // 8-character hex codes
+    }
+
+    // Store hashed codes as JSON array
+    const hashedCodes = await Promise.all(
+      codes.map((code) => bcrypt.hash(code, 10)),
+    );
+    user.backupCodes = JSON.stringify(hashedCodes);
+    await this.usersRepository.save(user);
+
+    return codes;
+  }
+
+  private async verifyBackupCode(user: User, code: string): Promise<boolean> {
+    if (!user.backupCodes) return false;
+
+    const hashedCodes: string[] = JSON.parse(user.backupCodes);
+    for (let i = 0; i < hashedCodes.length; i++) {
+      const isMatch = await bcrypt.compare(code, hashedCodes[i]);
+      if (isMatch) {
+        // Remove used code (single-use)
+        const updatedCodes = [
+          ...hashedCodes.slice(0, i),
+          ...hashedCodes.slice(i + 1),
+        ];
+        user.backupCodes =
+          updatedCodes.length > 0 ? JSON.stringify(updatedCodes) : null;
+        await this.usersRepository.save(user);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // M7: Per-email rate limiting for forgot-password
+
+  checkForgotPasswordEmailLimit(email: string): boolean {
+    const normalizedEmail = email.toLowerCase().trim();
+    const now = Date.now();
+    const record = this.forgotPasswordAttempts.get(normalizedEmail);
+
+    if (record) {
+      if (now - record.windowStart > this.FORGOT_PASSWORD_EMAIL_WINDOW_MS) {
+        // Window expired, reset
+        this.forgotPasswordAttempts.set(normalizedEmail, {
+          count: 1,
+          windowStart: now,
+        });
+        return true;
+      }
+      if (record.count >= this.FORGOT_PASSWORD_EMAIL_LIMIT) {
+        return false;
+      }
+      record.count += 1;
+      return true;
+    }
+
+    this.forgotPasswordAttempts.set(normalizedEmail, {
+      count: 1,
+      windowStart: now,
+    });
+    return true;
+  }
+
+  // M6: OIDC account linking with confirmation
+
+  async initiateOidcLink(
+    existingUser: User,
+    oidcSubject: string,
+  ): Promise<string> {
+    const linkToken = crypto.randomBytes(32).toString("hex");
+    existingUser.oidcLinkToken = this.hashToken(linkToken);
+    existingUser.oidcLinkExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    existingUser.oidcLinkPending = true;
+    existingUser.pendingOidcSubject = oidcSubject;
+    await this.usersRepository.save(existingUser);
+    return linkToken;
+  }
+
+  async confirmOidcLink(token: string): Promise<User> {
+    const hashedToken = this.hashToken(token);
+
+    const user = await this.usersRepository.findOne({
+      where: { oidcLinkToken: hashedToken, oidcLinkPending: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException("Invalid or expired link token");
+    }
+
+    if (user.oidcLinkExpiresAt && user.oidcLinkExpiresAt < new Date()) {
+      // Clear expired linking data
+      user.oidcLinkPending = false;
+      user.oidcLinkToken = null;
+      user.oidcLinkExpiresAt = null;
+      user.pendingOidcSubject = null;
+      await this.usersRepository.save(user);
+      throw new BadRequestException("Link token has expired");
+    }
+
+    // Complete the link
+    user.oidcSubject = user.pendingOidcSubject;
+    user.authProvider = "oidc";
+    user.oidcLinkPending = false;
+    user.oidcLinkToken = null;
+    user.oidcLinkExpiresAt = null;
+    user.pendingOidcSubject = null;
+    await this.usersRepository.save(user);
+
+    return user;
+  }
+
+  // M8: Migrate all legacy TOTP secrets to new format
+
+  async migrateLegacyTotpSecrets(): Promise<number> {
+    const users = await this.usersRepository
+      .createQueryBuilder("user")
+      .where("user.twoFactorSecret IS NOT NULL")
+      .getMany();
+
+    let migratedCount = 0;
+    for (const user of users) {
+      if (user.twoFactorSecret && isLegacyEncryption(user.twoFactorSecret)) {
+        const migrated = migrateFromLegacy(
+          user.twoFactorSecret,
+          this.jwtSecret,
+        );
+        if (migrated) {
+          user.twoFactorSecret = migrated;
+          await this.usersRepository.save(user);
+          migratedCount++;
+        }
+      }
+    }
+
+    if (migratedCount > 0) {
+      this.logger.log(
+        `Migrated ${migratedCount} legacy TOTP secrets to new format`,
+      );
+    }
+    return migratedCount;
+  }
+
   private sanitizeUser(user: User) {
     const {
       passwordHash,
@@ -885,6 +1112,10 @@ export class AuthService {
       twoFactorSecret,
       failedLoginAttempts,
       lockedUntil,
+      backupCodes,
+      oidcLinkToken,
+      oidcLinkExpiresAt,
+      pendingOidcSubject,
       ...sanitized
     } = user;
     return { ...sanitized, hasPassword: !!passwordHash };

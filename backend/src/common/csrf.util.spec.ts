@@ -6,10 +6,13 @@ import {
 
 describe("csrf.util", () => {
   describe("generateCsrfToken", () => {
-    it("returns a 64-character hex string without session binding", () => {
+    it("returns HMAC-bound token even without session binding", () => {
       const token = generateCsrfToken();
-      expect(token).toHaveLength(64);
-      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      expect(token).toContain(":");
+      const parts = token.split(":");
+      expect(parts).toHaveLength(2);
+      expect(parts[0]).toHaveLength(64); // 32-byte nonce in hex
+      expect(parts[1]).toHaveLength(64); // SHA-256 HMAC in hex
     });
 
     it("generates unique tokens on each call", () => {
@@ -61,8 +64,20 @@ describe("csrf.util", () => {
       expect(verifyCsrfToken("no-colon-token", "user-1", "secret")).toBe(false);
     });
 
-    it("returns true without session binding (fallback)", () => {
-      expect(verifyCsrfToken("any-token")).toBe(true);
+    it("verifies valid token without session binding (fallback)", () => {
+      const token = generateCsrfToken();
+      expect(verifyCsrfToken(token)).toBe(true);
+    });
+
+    it("rejects tampered token without session binding", () => {
+      const token = generateCsrfToken();
+      const [nonce] = token.split(":");
+      const tamperedToken = `${nonce}:${"a".repeat(64)}`;
+      expect(verifyCsrfToken(tamperedToken)).toBe(false);
+    });
+
+    it("rejects plain nonce (old format) without session binding", () => {
+      expect(verifyCsrfToken("a".repeat(64))).toBe(false);
     });
   });
 

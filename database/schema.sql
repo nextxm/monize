@@ -31,10 +31,16 @@ CREATE TABLE users (
     two_factor_secret VARCHAR(255), -- encrypted TOTP secret for 2FA
     pending_two_factor_secret VARCHAR(255), -- staged secret during 2FA setup
     failed_login_attempts INTEGER NOT NULL DEFAULT 0,
-    locked_until TIMESTAMP
+    locked_until TIMESTAMP,
+    backup_codes TEXT,
+    oidc_link_pending BOOLEAN NOT NULL DEFAULT false,
+    oidc_link_token VARCHAR(255),
+    oidc_link_expires_at TIMESTAMP,
+    pending_oidc_subject VARCHAR(255)
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token) WHERE reset_token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_oidc_link_token ON users(oidc_link_token) WHERE oidc_link_token IS NOT NULL;
 
 -- Currencies
 CREATE TABLE currencies (

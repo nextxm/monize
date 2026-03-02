@@ -16,7 +16,7 @@ import {
   ValidatorConstraintInterface,
   Validate,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Type, Transform } from "class-transformer";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { SanitizeHtml } from "../../common/decorators/sanitize-html.decorator";
 import {
@@ -57,7 +57,14 @@ export class FilterConditionDto {
     oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
   })
   @Validate(IsStringOrStringArray)
-  @SanitizeHtml()
+  @Transform(({ value }) => {
+    if (typeof value === "string") return value.replace(/[<>]/g, "");
+    if (Array.isArray(value))
+      return value.map((v: unknown) =>
+        typeof v === "string" ? v.replace(/[<>]/g, "") : v,
+      );
+    return value;
+  })
   value: string | string[];
 }
 

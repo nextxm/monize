@@ -349,6 +349,15 @@ export class AuthController {
       throw new ForbiddenException("Local authentication is disabled.");
     }
 
+    // M7: Per-email rate limiting (max 3 per email per hour)
+    if (!this.authService.checkForgotPasswordEmailLimit(dto.email)) {
+      // SECURITY: Still return success to prevent account enumeration
+      return {
+        message:
+          "If an account exists with that email, a password reset link has been sent.",
+      };
+    }
+
     const result = await this.authService.generateResetToken(dto.email);
 
     if (result && this.emailService.getStatus().configured) {
@@ -422,7 +431,7 @@ export class AuthController {
         httpOnly: true,
         secure: this.isProduction,
         sameSite: "lax",
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        maxAge: 14 * 24 * 60 * 60 * 1000, // M5: 14 days (reduced from 30)
       });
     }
 
@@ -544,6 +553,40 @@ export class AuthController {
     } catch (error) {
       this.clearAuthCookies(res);
       throw error;
+    }
+  }
+
+  @Post("2fa/backup-codes")
+  @UseGuards(AuthGuard("jwt"))
+  @DemoRestricted()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Generate new 2FA backup codes" })
+  async generateBackupCodes(@Request() req) {
+    const codes = await this.authService.generateBackupCodes(req.user.id);
+    return { codes };
+  }
+
+  @Get("oidc/confirm-link")
+  @SkipCsrf()
+  @ApiOperation({ summary: "Confirm OIDC account linking via email token" })
+  async confirmOidcLink(@Query("token") token: string, @Res() res: Response) {
+    const frontendUrl = this.configService.get<string>(
+      "PUBLIC_APP_URL",
+      "http://localhost:3000",
+    );
+
+    try {
+      if (!token) {
+        throw new BadRequestException("Missing link token");
+      }
+      await this.authService.confirmOidcLink(token);
+      res.redirect(`${frontendUrl}/auth/callback?link=success`);
+    } catch (error) {
+      this.logger.error(
+        "OIDC link confirmation error",
+        error instanceof Error ? error.stack : undefined,
+      );
+      res.redirect(`${frontendUrl}/auth/callback?link=failed`);
     }
   }
 

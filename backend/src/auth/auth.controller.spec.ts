@@ -61,6 +61,9 @@ describe("AuthController", () => {
       findTrustedDeviceByToken: jest.fn(),
       revokeTrustedDevice: jest.fn(),
       revokeAllTrustedDevices: jest.fn(),
+      checkForgotPasswordEmailLimit: jest.fn().mockReturnValue(true),
+      generateBackupCodes: jest.fn(),
+      confirmOidcLink: jest.fn(),
     };
 
     oidcService = {
@@ -772,7 +775,7 @@ describe("AuthController", () => {
         expect.objectContaining({
           httpOnly: true,
           sameSite: "lax",
-          maxAge: 30 * 24 * 60 * 60 * 1000,
+          maxAge: 14 * 24 * 60 * 60 * 1000,
         }),
       );
     });
