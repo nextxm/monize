@@ -20,6 +20,7 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
+import { Throttle } from "@nestjs/throttler";
 import { ParseCurrencyCodePipe } from "../common/pipes/parse-currency-code.pipe";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
@@ -73,6 +74,7 @@ export class CurrenciesController {
   // ── Static-segment routes (must be BEFORE :code param route) ────
 
   @Get("lookup")
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // L2: 10 lookups per minute
   @ApiOperation({ summary: "Lookup currency on Yahoo Finance" })
   @ApiQuery({ name: "q", required: true, type: String })
   @ApiResponse({ status: 200, description: "Currency lookup result" })
@@ -106,6 +108,7 @@ export class CurrenciesController {
   }
 
   @Get("exchange-rates/history")
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // L2: 10 requests per minute
   @ApiOperation({ summary: "Get exchange rates for a date range" })
   @ApiQuery({ name: "startDate", required: false, type: String })
   @ApiQuery({ name: "endDate", required: false, type: String })

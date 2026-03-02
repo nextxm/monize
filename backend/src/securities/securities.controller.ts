@@ -21,6 +21,7 @@ import {
   ApiQuery,
 } from "@nestjs/swagger";
 import { AuthGuard } from "@nestjs/passport";
+import { Throttle } from "@nestjs/throttler";
 import { ParseSymbolPipe } from "../common/pipes/parse-symbol.pipe";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
@@ -96,6 +97,7 @@ export class SecuritiesController {
   }
 
   @Get("lookup")
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // L2: 10 lookups per minute
   @ApiOperation({ summary: "Lookup security info from Yahoo Finance" })
   @ApiQuery({
     name: "q",
