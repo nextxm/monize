@@ -2500,7 +2500,7 @@ describe("AuthService", () => {
 
     it("rejects invalid backup code", async () => {
       const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
-      const hashedCodes = [await bcrypt.hash("abcd1234", 10)];
+      const hashedCodes = [await bcrypt.hash("abcd-1234", 10)];
       const userWithCodes = {
         ...mockUser,
         twoFactorSecret: encryptedSecret,
@@ -2512,10 +2512,77 @@ describe("AuthService", () => {
         type: "2fa_pending",
       });
       usersRepository.findOne.mockResolvedValue(userWithCodes);
-      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
 
       await expect(
-        service.verify2FA("bad-backup-token", "wrongcode"),
+        service.verify2FA("bad-backup-token", "dead-beef"),
+      ).rejects.toThrow("Invalid verification code");
+    });
+
+    it("does not call otplib.verifySync for backup codes", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+      const codes = await service.generateBackupCodes("user-1");
+
+      const savedUser = usersRepository.save.mock.calls[0][0];
+      const userWithCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: savedUser.backupCodes,
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithCodes);
+      (otplib.verifySync as jest.Mock).mockClear();
+
+      await service.verify2FA("backup-routing-token", codes[0]);
+
+      expect(otplib.verifySync).not.toHaveBeenCalled();
+    });
+
+    it("does not try backup codes for 6-digit TOTP codes", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      const userWithCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: JSON.stringify(["some-hash"]),
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithCodes);
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: true });
+
+      const result = await service.verify2FA("totp-routing-token", "123456");
+
+      expect(otplib.verifySync).toHaveBeenCalled();
+      expect(result.user).toBeDefined();
+    });
+
+    it("rejects non-6-digit code when user has no backup codes", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      const userWithNoCodes = {
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      };
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue(userWithNoCodes);
+
+      await expect(
+        service.verify2FA("no-backup-token", "abcd-ef12"),
       ).rejects.toThrow("Invalid verification code");
     });
   });
