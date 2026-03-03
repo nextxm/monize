@@ -194,6 +194,52 @@ describe('TwoFactorVerify', () => {
     });
   });
 
+  it('filters non-hex and non-dash characters from backup code input', () => {
+    render(
+      <TwoFactorVerify tempToken={tempToken} onVerified={onVerified} onCancel={onCancel} />,
+    );
+
+    fireEvent.click(screen.getByText('Use a backup code instead'));
+
+    const input = screen.getByPlaceholderText('xxxx-xxxx');
+    fireEvent.change(input, { target: { value: 'g1Z2!x-y3#4' } });
+    // Only hex chars and dashes should remain, lowercased
+    expect(input).toHaveValue('12-34');
+  });
+
+  it('converts uppercase hex to lowercase in backup code input', () => {
+    render(
+      <TwoFactorVerify tempToken={tempToken} onVerified={onVerified} onCancel={onCancel} />,
+    );
+
+    fireEvent.click(screen.getByText('Use a backup code instead'));
+
+    const input = screen.getByPlaceholderText('xxxx-xxxx');
+    fireEvent.change(input, { target: { value: 'A1B2-C3D4' } });
+    expect(input).toHaveValue('a1b2-c3d4');
+  });
+
+  it('clears backup code input when switching modes', () => {
+    render(
+      <TwoFactorVerify tempToken={tempToken} onVerified={onVerified} onCancel={onCancel} />,
+    );
+
+    // Enter a TOTP code
+    const totpInput = screen.getByPlaceholderText('000000');
+    fireEvent.change(totpInput, { target: { value: '123456' } });
+
+    // Switch to backup mode - code should reset
+    fireEvent.click(screen.getByText('Use a backup code instead'));
+    const backupInput = screen.getByPlaceholderText('xxxx-xxxx');
+    expect(backupInput).toHaveValue('');
+
+    // Enter a backup code then switch back - should reset
+    fireEvent.change(backupInput, { target: { value: 'a1b2-c3d4' } });
+    fireEvent.click(screen.getByText('Use authenticator code instead'));
+    const newTotpInput = screen.getByPlaceholderText('000000');
+    expect(newTotpInput).toHaveValue('');
+  });
+
   it('disables Verify button when backup code format is invalid', () => {
     render(
       <TwoFactorVerify tempToken={tempToken} onVerified={onVerified} onCancel={onCancel} />,
