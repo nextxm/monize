@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@/test/render';
 import TransactionsPage from './page';
-import toast from 'react-hot-toast';
 
 // Mock next/image
 vi.mock('next/image', () => ({

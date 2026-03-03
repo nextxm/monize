@@ -443,6 +443,7 @@ export class AuthController {
   @Post("2fa/confirm-setup")
   @UseGuards(AuthGuard("jwt"))
   @DemoRestricted()
+  @Throttle({ default: { ttl: 900000, limit: 5 } })
   @ApiBearerAuth()
   @ApiOperation({ summary: "Confirm 2FA setup with verification code" })
   async confirmSetup2FA(@Request() req, @Body() dto: Setup2faDto) {
@@ -452,6 +453,7 @@ export class AuthController {
   @Post("2fa/disable")
   @UseGuards(AuthGuard("jwt"))
   @DemoRestricted()
+  @Throttle({ default: { ttl: 900000, limit: 5 } })
   @ApiBearerAuth()
   @ApiOperation({ summary: "Disable 2FA with verification code" })
   async disable2FA(@Request() req, @Body() dto: Setup2faDto) {
