@@ -44,8 +44,13 @@ export class AuthService {
   private readonly BASE_LOCKOUT_MS = 30 * 60 * 1000; // 30 minutes
   private readonly TRUSTED_DEVICE_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
   private readonly MAX_2FA_ATTEMPTS = 3;
+  private readonly MAX_USER_2FA_ATTEMPTS = 10;
   private readonly BACKUP_CODE_COUNT = 12;
   private readonly twoFactorAttempts = new Map<
+    string,
+    { count: number; expiresAt: number }
+  >();
+  private readonly user2FAAttempts = new Map<
     string,
     { count: number; expiresAt: number }
   >();
@@ -282,6 +287,20 @@ export class AuthService {
       throw new UnauthorizedException("Invalid token type");
     }
 
+    // Per-user rate limiting: prevents brute-force multiplication via multiple tempTokens
+    const userAttemptRecord = this.user2FAAttempts.get(payload.sub);
+    if (
+      userAttemptRecord &&
+      userAttemptRecord.count >= this.MAX_USER_2FA_ATTEMPTS
+    ) {
+      this.logger.warn(
+        `2FA verification blocked: too many attempts for user ${payload.sub}`,
+      );
+      throw new UnauthorizedException(
+        "Too many verification attempts. Your account has been temporarily locked.",
+      );
+    }
+
     const user = await this.usersRepository.findOne({
       where: { id: payload.sub },
     });
@@ -303,13 +322,35 @@ export class AuthService {
     }
 
     if (!isValid) {
-      // Track failed attempt
+      // Track failed attempt per-token
       const existing = this.twoFactorAttempts.get(tempToken);
       const newCount = (existing?.count ?? 0) + 1;
       this.twoFactorAttempts.set(tempToken, {
         count: newCount,
         expiresAt: Date.now() + 5 * 60 * 1000,
       });
+
+      // Track failed attempt per-user
+      const existingUser = this.user2FAAttempts.get(payload.sub);
+      const newUserCount = (existingUser?.count ?? 0) + 1;
+      this.user2FAAttempts.set(payload.sub, {
+        count: newUserCount,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+      });
+
+      // Lock account after exceeding per-user threshold
+      if (newUserCount >= this.MAX_USER_2FA_ATTEMPTS) {
+        await this.usersRepository
+          .createQueryBuilder()
+          .update(User)
+          .set({ lockedUntil: new Date(Date.now() + this.BASE_LOCKOUT_MS) })
+          .where("id = :id", { id: user.id })
+          .execute();
+        this.logger.warn(
+          `Account locked after ${newUserCount} failed 2FA attempts for user ${user.id}`,
+        );
+      }
+
       this.logger.warn(
         `2FA verification failed: invalid code for user ${user.id}`,
       );
@@ -318,6 +359,7 @@ export class AuthService {
 
     // M4: Clear attempt tracking on success
     this.twoFactorAttempts.delete(tempToken);
+    this.user2FAAttempts.delete(payload.sub);
 
     // M8: Migrate legacy TOTP encryption if needed
     if (isLegacyEncryption(user.twoFactorSecret)) {
@@ -356,6 +398,11 @@ export class AuthService {
     for (const [key, value] of this.twoFactorAttempts.entries()) {
       if (value.expiresAt <= now) {
         this.twoFactorAttempts.delete(key);
+      }
+    }
+    for (const [key, value] of this.user2FAAttempts.entries()) {
+      if (value.expiresAt <= now) {
+        this.user2FAAttempts.delete(key);
       }
     }
   }
@@ -988,22 +1035,81 @@ export class AuthService {
   private async verifyBackupCode(user: User, code: string): Promise<boolean> {
     if (!user.backupCodes) return false;
 
+    // Pre-check: find matching code index before acquiring lock
     const hashedCodes: string[] = JSON.parse(user.backupCodes);
+    let matchIndex = -1;
     for (let i = 0; i < hashedCodes.length; i++) {
       const isMatch = await bcrypt.compare(code, hashedCodes[i]);
       if (isMatch) {
-        // Remove used code (single-use)
-        const updatedCodes = [
-          ...hashedCodes.slice(0, i),
-          ...hashedCodes.slice(i + 1),
-        ];
-        user.backupCodes =
-          updatedCodes.length > 0 ? JSON.stringify(updatedCodes) : null;
-        await this.usersRepository.save(user);
-        return true;
+        matchIndex = i;
+        break;
       }
     }
-    return false;
+
+    if (matchIndex === -1) return false;
+
+    // Atomic removal: use QueryRunner with pessimistic lock to prevent
+    // concurrent backup code reuse (TOCTOU race condition)
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const lockedUser = await queryRunner.manager.findOne(User, {
+        where: { id: user.id },
+        lock: { mode: "pessimistic_write" },
+      });
+
+      if (!lockedUser?.backupCodes) {
+        await queryRunner.rollbackTransaction();
+        return false;
+      }
+
+      const currentCodes: string[] = JSON.parse(lockedUser.backupCodes);
+
+      // Re-verify against the locked row to prevent replay
+      let verifiedIndex = -1;
+      for (let i = 0; i < currentCodes.length; i++) {
+        const isMatch = await bcrypt.compare(code, currentCodes[i]);
+        if (isMatch) {
+          verifiedIndex = i;
+          break;
+        }
+      }
+
+      if (verifiedIndex === -1) {
+        // Code already consumed by a concurrent request
+        await queryRunner.rollbackTransaction();
+        return false;
+      }
+
+      const updatedCodes = [
+        ...currentCodes.slice(0, verifiedIndex),
+        ...currentCodes.slice(verifiedIndex + 1),
+      ];
+
+      await queryRunner.manager
+        .createQueryBuilder()
+        .update(User)
+        .set({
+          backupCodes:
+            updatedCodes.length > 0 ? JSON.stringify(updatedCodes) : null,
+        })
+        .where("id = :id", { id: user.id })
+        .execute();
+
+      await queryRunner.commitTransaction();
+
+      // Keep in-memory entity consistent
+      user.backupCodes =
+        updatedCodes.length > 0 ? JSON.stringify(updatedCodes) : null;
+
+      return true;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   // M7: Per-email rate limiting for forgot-password

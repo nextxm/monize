@@ -107,6 +107,7 @@ describe("AuthService", () => {
 
     dataSource = {
       transaction: jest.fn(),
+      createQueryRunner: jest.fn(),
     };
 
     passwordBreachService = {
@@ -2405,6 +2406,32 @@ describe("AuthService", () => {
   describe("verify2FA with backup code (L5)", () => {
     const jwtSecret = "test-jwt-secret-minimum-32-chars-long";
 
+    function setupBackupCodeQueryRunner(backupCodes: string) {
+      const mockSetFn = jest.fn().mockReturnThis();
+      const mockQRManager = {
+        findOne: jest.fn().mockResolvedValue({
+          ...mockUser,
+          backupCodes,
+        }),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          update: jest.fn().mockReturnThis(),
+          set: mockSetFn,
+          where: jest.fn().mockReturnThis(),
+          execute: jest.fn().mockResolvedValue({ affected: 1 }),
+        }),
+      };
+      const mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: mockQRManager,
+      };
+      dataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+      return { mockQueryRunner, mockQRManager, mockSetFn };
+    }
+
     it("accepts a valid backup code", async () => {
       const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
       // Generate real backup codes
@@ -2422,6 +2449,8 @@ describe("AuthService", () => {
         twoFactorSecret: encryptedSecret,
         backupCodes: savedUser.backupCodes,
       };
+
+      setupBackupCodeQueryRunner(savedUser.backupCodes);
 
       (jwtService.verify as jest.Mock).mockReturnValue({
         sub: "user-1",
@@ -2452,6 +2481,8 @@ describe("AuthService", () => {
         backupCodes: savedUser.backupCodes,
       };
 
+      const { mockSetFn } = setupBackupCodeQueryRunner(savedUser.backupCodes);
+
       (jwtService.verify as jest.Mock).mockReturnValue({
         sub: "user-1",
         type: "2fa_pending",
@@ -2461,8 +2492,9 @@ describe("AuthService", () => {
 
       await service.verify2FA("backup-used-token", codes[0]);
 
-      // After using the code, the remaining codes count should be 11
-      const updatedCodes = JSON.parse(userWithCodes.backupCodes!);
+      // After using the code, the atomic update should save 11 remaining codes
+      const savedBackupCodes = mockSetFn.mock.calls[0][0].backupCodes;
+      const updatedCodes = JSON.parse(savedBackupCodes);
       expect(updatedCodes).toHaveLength(11);
     });
 
@@ -2563,6 +2595,236 @@ describe("AuthService", () => {
       expect(result.user).not.toHaveProperty("oidcLinkToken");
       expect(result.user).not.toHaveProperty("oidcLinkExpiresAt");
       expect(result.user).not.toHaveProperty("pendingOidcSubject");
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Per-user 2FA rate limiting and account lockout
+  // ---------------------------------------------------------------
+
+  describe("verify2FA - per-user attempt tracking", () => {
+    const jwtSecret = "test-jwt-secret-minimum-32-chars-long";
+
+    beforeEach(() => {
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+    });
+
+    it("blocks after 10 failed attempts across different temp tokens", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      const mockQB = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      usersRepository.createQueryBuilder.mockReturnValue(mockQB);
+
+      // 10 failed attempts on unique temp tokens (3 per token, 4 tokens needed)
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          service.verify2FA(`token-${i}`, "000000"),
+        ).rejects.toThrow("Invalid verification code");
+      }
+
+      // 11th attempt should be blocked by per-user limit
+      await expect(
+        service.verify2FA("token-new", "000000"),
+      ).rejects.toThrow("Too many verification attempts");
+    });
+
+    it("locks user account after reaching per-user threshold", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      const mockQB = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      usersRepository.createQueryBuilder.mockReturnValue(mockQB);
+
+      // Exhaust per-user limit
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          service.verify2FA(`lockout-token-${i}`, "000000"),
+        ).rejects.toThrow("Invalid verification code");
+      }
+
+      // Verify that lockedUntil was set via QueryBuilder
+      expect(mockQB.update).toHaveBeenCalled();
+      expect(mockQB.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lockedUntil: expect.any(Date),
+        }),
+      );
+    });
+
+    it("resets per-user counter on successful verification", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+
+      // Accumulate some failures
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+      for (let i = 0; i < 5; i++) {
+        await expect(
+          service.verify2FA(`reset-token-${i}`, "000000"),
+        ).rejects.toThrow("Invalid verification code");
+      }
+
+      // Succeed
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: true });
+      const result = await service.verify2FA("reset-token-final", "123456");
+      expect(result.user).toBeDefined();
+
+      // After success, per-user counter should be cleared; 10 more failures should be needed
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+      usersRepository.createQueryBuilder.mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      });
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          service.verify2FA(`post-reset-token-${i}`, "000000"),
+        ).rejects.toThrow("Invalid verification code");
+      }
+      // 11th should trigger per-user block
+      await expect(
+        service.verify2FA("post-reset-overflow", "000000"),
+      ).rejects.toThrow("Too many verification attempts");
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Atomic backup code consumption
+  // ---------------------------------------------------------------
+
+  describe("verify2FA - atomic backup code consumption", () => {
+    const jwtSecret = "test-jwt-secret-minimum-32-chars-long";
+
+    it("uses QueryRunner transaction for backup code removal", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+
+      // Generate backup codes
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        backupCodes: null,
+      });
+      usersRepository.save.mockImplementation((u) => u);
+      const codes = await service.generateBackupCodes("user-1");
+      const savedUser = usersRepository.save.mock.calls[0][0];
+
+      // Set up QueryRunner mock
+      const mockQRManager = {
+        findOne: jest.fn().mockResolvedValue({
+          ...mockUser,
+          twoFactorSecret: encryptedSecret,
+          backupCodes: savedUser.backupCodes,
+        }),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          update: jest.fn().mockReturnThis(),
+          set: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          execute: jest.fn().mockResolvedValue({ affected: 1 }),
+        }),
+      };
+      const mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: mockQRManager,
+      };
+      dataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      // Set up verify2FA context
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: savedUser.backupCodes,
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      const result = await service.verify2FA("atomic-backup-token", codes[0]);
+
+      expect(result.user).toBeDefined();
+      expect(mockQueryRunner.connect).toHaveBeenCalled();
+      expect(mockQueryRunner.startTransaction).toHaveBeenCalled();
+      expect(mockQRManager.findOne).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          lock: { mode: "pessimistic_write" },
+        }),
+      );
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
+
+    it("rolls back transaction if backup code was already consumed", async () => {
+      const encryptedSecret = encrypt("TESTSECRET", jwtSecret);
+      const hashedCodes = [await bcrypt.hash("abcd-1234", 10)];
+
+      // QueryRunner returns user with no backup codes (already consumed)
+      const mockQRManager = {
+        findOne: jest.fn().mockResolvedValue({
+          ...mockUser,
+          backupCodes: null,
+        }),
+      };
+      const mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: mockQRManager,
+      };
+      dataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
+
+      (jwtService.verify as jest.Mock).mockReturnValue({
+        sub: "user-1",
+        type: "2fa_pending",
+      });
+      usersRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        twoFactorSecret: encryptedSecret,
+        backupCodes: JSON.stringify(hashedCodes),
+      });
+      (otplib.verifySync as jest.Mock).mockReturnValue({ valid: false });
+
+      await expect(
+        service.verify2FA("consumed-backup-token", "abcd-1234"),
+      ).rejects.toThrow("Invalid verification code");
+
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
     });
   });
 });
