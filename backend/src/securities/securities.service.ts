@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   ForbiddenException,
@@ -10,14 +11,18 @@ import { Security } from "./entities/security.entity";
 import { Holding } from "./entities/holding.entity";
 import { CreateSecurityDto } from "./dto/create-security.dto";
 import { UpdateSecurityDto } from "./dto/update-security.dto";
+import { SecurityPriceService } from "./security-price.service";
 
 @Injectable()
 export class SecuritiesService {
+  private readonly logger = new Logger(SecuritiesService.name);
+
   constructor(
     @InjectRepository(Security)
     private securitiesRepository: Repository<Security>,
     @InjectRepository(Holding)
     private holdingsRepository: Repository<Holding>,
+    private securityPriceService: SecurityPriceService,
   ) {}
 
   async create(
@@ -39,7 +44,16 @@ export class SecuritiesService {
       ...createSecurityDto,
       userId,
     });
-    return this.securitiesRepository.save(security);
+    const saved = await this.securitiesRepository.save(security);
+
+    // Fire-and-forget: backfill 1Y of daily prices for the new security
+    this.securityPriceService.backfillSecurity(saved).catch((err) => {
+      this.logger.warn(
+        `Background price backfill failed for ${saved.symbol}: ${err.message}`,
+      );
+    });
+
+    return saved;
   }
 
   async findAll(

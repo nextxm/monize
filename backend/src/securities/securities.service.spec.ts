@@ -8,11 +8,13 @@ import {
 import { SecuritiesService } from "./securities.service";
 import { Security } from "./entities/security.entity";
 import { Holding } from "./entities/holding.entity";
+import { SecurityPriceService } from "./security-price.service";
 
 describe("SecuritiesService", () => {
   let service: SecuritiesService;
   let securitiesRepository: Record<string, jest.Mock>;
   let holdingsRepository: Record<string, jest.Mock>;
+  let mockSecurityPriceService: Record<string, jest.Mock>;
 
   const mockSecurity = {
     id: "sec-1",
@@ -53,6 +55,10 @@ describe("SecuritiesService", () => {
       })),
     };
 
+    mockSecurityPriceService = {
+      backfillSecurity: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SecuritiesService,
@@ -63,6 +69,10 @@ describe("SecuritiesService", () => {
         {
           provide: getRepositoryToken(Holding),
           useValue: holdingsRepository,
+        },
+        {
+          provide: SecurityPriceService,
+          useValue: mockSecurityPriceService,
         },
       ],
     }).compile();

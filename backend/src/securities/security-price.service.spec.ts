@@ -1211,21 +1211,18 @@ describe("SecurityPriceService", () => {
     });
   });
 
-  describe("backfillMissingDailyPrices", () => {
-    it("skips when all securities have sufficient coverage", async () => {
-      dataSourceMock.query.mockResolvedValueOnce([]);
+  describe("backfillSecurity", () => {
+    it("skips securities with skipPriceUpdates", async () => {
+      const skipSec = { ...mockSecurity, skipPriceUpdates: true } as Security;
+      const fetchSpy = jest.fn();
+      global.fetch = fetchSpy;
 
-      await service.backfillMissingDailyPrices();
+      await service.backfillSecurity(skipSec);
 
-      // No fetch calls needed
-      expect(dataSourceMock.query).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it("backfills securities with insufficient daily prices", async () => {
-      dataSourceMock.query.mockResolvedValueOnce([
-        { id: "sec-1", symbol: "AAPL", exchange: "NASDAQ", cnt: "50" },
-      ]);
-
+    it("fetches 1Y of daily prices for a single security", async () => {
       const historicalData = makeYahooHistoricalResponse({
         timestamps: [1748700000, 1748800000],
         closes: [193.0, 194.0],
@@ -1238,12 +1235,24 @@ describe("SecurityPriceService", () => {
 
       dataSourceMock.query.mockResolvedValue(undefined);
 
-      await service.backfillMissingDailyPrices();
+      await service.backfillSecurity(mockSecurity);
 
       expect(global.fetch).toHaveBeenCalledTimes(1);
       expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain(
         "range=1y",
       );
+    });
+
+    it("handles no prices available gracefully", async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(
+          createMockFetchResponse({ chart: { result: [] } }),
+        ) as jest.Mock;
+
+      await expect(
+        service.backfillSecurity(mockSecurity),
+      ).resolves.not.toThrow();
     });
   });
 

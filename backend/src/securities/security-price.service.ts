@@ -604,73 +604,34 @@ export class SecurityPriceService {
     } catch (error) {
       this.logger.error(`Scheduled price refresh failed: ${error.message}`);
     }
-
-    // Weekly backfill check on Mondays to ensure 1Y of daily price data
-    if (new Date().getDay() === 1) {
-      try {
-        await this.backfillMissingDailyPrices();
-      } catch (error) {
-        this.logger.error(`Weekly backfill check failed: ${error.message}`);
-      }
-    }
   }
 
   /**
-   * Backfill daily prices for securities that are missing data within the last year.
-   * Only fetches for securities where gaps exist, to minimize API calls.
+   * Backfill 1 year of daily prices for a single security.
+   * Called when a new security is created (manually or via QIF import).
    */
-  async backfillMissingDailyPrices(): Promise<void> {
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const oneYearAgoStr = oneYearAgo.toISOString().substring(0, 10);
+  async backfillSecurity(security: Security): Promise<void> {
+    if (security.skipPriceUpdates) return;
 
-    // Find securities with fewer daily prices than expected in the last year
-    // (~252 trading days). Use a threshold of 200 to account for holidays/weekends.
-    const rows: Array<{
-      id: string;
-      symbol: string;
-      exchange: string;
-      cnt: string;
-    }> = await this.dataSource.query(
-      `SELECT s.id, s.symbol, s.exchange, COUNT(sp.id)::TEXT as cnt
-         FROM securities s
-         LEFT JOIN security_prices sp
-           ON sp.security_id = s.id AND sp.price_date >= $1
-         WHERE s.is_active = true AND s.skip_price_updates = false
-         GROUP BY s.id
-         HAVING COUNT(sp.id) < 200`,
-      [oneYearAgoStr],
+    const prices = await this.fetchWithFallback(
+      security.symbol,
+      security.exchange,
+      "1y",
     );
-
-    if (rows.length === 0) {
-      this.logger.log("All securities have sufficient daily price coverage");
+    if (!prices || prices.length === 0) {
+      this.logger.warn(`No historical prices available for ${security.symbol}`);
       return;
     }
 
-    this.logger.log(
-      `Found ${rows.length} securities with incomplete daily price data, backfilling`,
-    );
-
-    for (const row of rows) {
-      const prices = await this.fetchWithFallback(
-        row.symbol,
-        row.exchange,
-        "1y",
+    try {
+      await this.bulkUpsertPrices(security.id, prices);
+      this.logger.log(
+        `Backfilled ${prices.length} daily prices for ${security.symbol}`,
       );
-      if (!prices || prices.length === 0) continue;
-
-      try {
-        await this.bulkUpsertPrices(row.id, prices);
-        this.logger.log(
-          `Backfilled ${prices.length} daily prices for ${row.symbol}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to backfill daily prices for ${row.symbol}: ${error.message}`,
-        );
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      this.logger.error(
+        `Failed to backfill daily prices for ${security.symbol}: ${error.message}`,
+      );
     }
   }
 }
