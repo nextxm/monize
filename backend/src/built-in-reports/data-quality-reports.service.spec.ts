@@ -75,6 +75,7 @@ describe("DataQualityReportsService", () => {
           payee_name: "Coffee Shop",
           description: "Morning coffee",
           account_name: "Checking",
+          account_id: "acc-1",
         },
         {
           id: "tx-2",
@@ -84,6 +85,7 @@ describe("DataQualityReportsService", () => {
           payee_name: null,
           description: null,
           account_name: "Savings",
+          account_id: "acc-2",
         },
       ]);
       transactionsRepository.query.mockResolvedValueOnce([
@@ -109,9 +111,11 @@ describe("DataQualityReportsService", () => {
       expect(result.transactions[0].payeeName).toBe("Coffee Shop");
       expect(result.transactions[0].description).toBe("Morning coffee");
       expect(result.transactions[0].accountName).toBe("Checking");
+      expect(result.transactions[0].accountId).toBe("acc-1");
 
       expect(result.transactions[1].payeeName).toBeNull();
       expect(result.transactions[1].description).toBeNull();
+      expect(result.transactions[1].accountId).toBe("acc-2");
     });
 
     it("calculates summary from multiple currency rows", async () => {
@@ -174,6 +178,7 @@ describe("DataQualityReportsService", () => {
           payee_name: "Euro Store",
           description: null,
           account_name: "Euro Account",
+          account_id: "acc-1",
         },
       ]);
       transactionsRepository.query.mockResolvedValueOnce([]);
@@ -282,6 +287,7 @@ describe("DataQualityReportsService", () => {
           payee_name: "Store",
           description: null,
           account_name: "Checking",
+          account_id: "acc-1",
         },
       ]);
       transactionsRepository.query.mockResolvedValueOnce([]);

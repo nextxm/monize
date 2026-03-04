@@ -37,7 +37,8 @@ export class DataQualityReportsService {
         t.amount,
         COALESCE(p.name, t.payee_name) as payee_name,
         t.description,
-        a.name as account_name
+        a.name as account_name,
+        t.account_id
       FROM transactions t
       LEFT JOIN payees p ON p.id = t.payee_id
       LEFT JOIN accounts a ON a.id = t.account_id
@@ -75,6 +76,7 @@ export class DataQualityReportsService {
       payee_name: string | null;
       description: string | null;
       account_name: string | null;
+      account_id: string;
     }
 
     const rows: RawUncategorizedTx[] = await this.transactionsRepository.query(
@@ -96,6 +98,7 @@ export class DataQualityReportsService {
       payeeName: row.payee_name,
       description: row.description,
       accountName: row.account_name,
+      accountId: row.account_id,
     }));
 
     let summaryQuery = `

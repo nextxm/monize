@@ -92,6 +92,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Unknown Store",
           description: "Card payment",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50.0,
         },
       ],
@@ -138,6 +139,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Store A",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50,
         },
         {
@@ -146,6 +148,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Employer",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: 200,
         },
       ],
@@ -175,6 +178,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Store A",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50,
         },
         {
@@ -183,6 +187,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Employer",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: 200,
         },
       ],
@@ -212,6 +217,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Alpha",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50,
         },
         {
@@ -220,6 +226,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Beta",
           description: "",
           accountName: "Savings",
+          accountId: "acc-2",
           amount: -100,
         },
       ],
@@ -251,6 +258,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Store A",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50,
         },
         {
@@ -259,6 +267,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Store B",
           description: "",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -100,
         },
       ],
@@ -278,7 +287,7 @@ describe("UncategorizedTransactionsReport", () => {
     expect(screen.getByText("Store B")).toBeInTheDocument();
   });
 
-  it("navigates to transactions with search on row click", async () => {
+  it("navigates to transactions with uncategorized and account filters on row click", async () => {
     mockGetUncategorizedTransactions.mockResolvedValue({
       transactions: [
         {
@@ -287,6 +296,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: "Store A",
           description: "desc",
           accountName: "Chequing",
+          accountId: "acc-1",
           amount: -50,
         },
       ],
@@ -303,7 +313,72 @@ describe("UncategorizedTransactionsReport", () => {
       expect(screen.getByText("Store A")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("Store A"));
-    expect(mockPush).toHaveBeenCalledWith("/transactions?search=Store%20A");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/transactions?categoryIds=uncategorized&accountIds=acc-1&search=Store+A"
+    );
+  });
+
+  it("navigates using description when payeeName is null", async () => {
+    mockGetUncategorizedTransactions.mockResolvedValue({
+      transactions: [
+        {
+          id: "tx-1",
+          transactionDate: "2025-02-15",
+          payeeName: null,
+          description: "Wire transfer",
+          accountName: "Chequing",
+          accountId: "acc-1",
+          amount: -75,
+        },
+      ],
+      summary: {
+        totalCount: 1,
+        expenseCount: 1,
+        expenseTotal: 75,
+        incomeCount: 0,
+        incomeTotal: 0,
+      },
+    });
+    render(<UncategorizedTransactionsReport />);
+    await waitFor(() => {
+      expect(screen.getByText("Wire transfer")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Wire transfer"));
+    expect(mockPush).toHaveBeenCalledWith(
+      "/transactions?categoryIds=uncategorized&accountIds=acc-1&search=Wire+transfer"
+    );
+  });
+
+  it("navigates without search param when payeeName and description are null", async () => {
+    mockGetUncategorizedTransactions.mockResolvedValue({
+      transactions: [
+        {
+          id: "tx-1",
+          transactionDate: "2025-02-15",
+          payeeName: null,
+          description: null,
+          accountName: "Chequing",
+          accountId: "acc-1",
+          amount: 25,
+        },
+      ],
+      summary: {
+        totalCount: 1,
+        expenseCount: 0,
+        expenseTotal: 0,
+        incomeCount: 1,
+        incomeTotal: 25,
+      },
+    });
+    render(<UncategorizedTransactionsReport />);
+    await waitFor(() => {
+      const unknowns = screen.getAllByText("Unknown");
+      expect(unknowns.length).toBeGreaterThanOrEqual(1);
+    });
+    fireEvent.click(screen.getAllByText("Unknown")[0]);
+    expect(mockPush).toHaveBeenCalledWith(
+      "/transactions?categoryIds=uncategorized&accountIds=acc-1"
+    );
   });
 
   it("renders transaction without payeeName", async () => {
@@ -315,6 +390,7 @@ describe("UncategorizedTransactionsReport", () => {
           payeeName: null,
           description: null,
           accountName: null,
+          accountId: "acc-1",
           amount: 25,
         },
       ],
@@ -340,6 +416,7 @@ describe("UncategorizedTransactionsReport", () => {
       payeeName: `Payee ${i}`,
       description: "",
       accountName: "Chequing",
+      accountId: "acc-1",
       amount: -10,
     }));
     mockGetUncategorizedTransactions.mockResolvedValue({

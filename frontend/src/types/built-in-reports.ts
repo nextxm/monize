@@ -227,6 +227,7 @@ export interface UncategorizedTransactionItem {
   payeeName: string | null;
   description: string | null;
   accountName: string | null;
+  accountId: string;
 }
 
 export interface UncategorizedTransactionsResponse {

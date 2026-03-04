@@ -192,6 +192,24 @@ export function TransactionFilterPanel({
                   </button>
                 </span>
               ))}
+              {/* Payee chips - Purple */}
+              {selectedPayees.map(payee => (
+                <span
+                  key={`payee-${payee.id}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 whitespace-nowrap"
+                >
+                  {payee.name}
+                  <button
+                    onClick={() => handleArrayFilterChange(setFilterPayeeIds, filterPayeeIds.filter(id => id !== payee.id))}
+                    className="ml-0.5 -mr-1 p-0.5 rounded-full inline-flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-800"
+                    aria-label={`Remove ${payee.name} filter`}
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
               {/* Category chips - Blue with color dot */}
               {selectedCategories.map(cat => (
                 <span
@@ -209,24 +227,6 @@ export function TransactionFilterPanel({
                     onClick={() => handleArrayFilterChange(setFilterCategoryIds, filterCategoryIds.filter(id => id !== cat.id))}
                     className="ml-0.5 -mr-1 p-0.5 rounded-full inline-flex items-center justify-center hover:bg-blue-200 dark:hover:bg-blue-800"
                     aria-label={`Remove ${cat.name} filter`}
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </span>
-              ))}
-              {/* Payee chips - Purple */}
-              {selectedPayees.map(payee => (
-                <span
-                  key={`payee-${payee.id}`}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 whitespace-nowrap"
-                >
-                  {payee.name}
-                  <button
-                    onClick={() => handleArrayFilterChange(setFilterPayeeIds, filterPayeeIds.filter(id => id !== payee.id))}
-                    className="ml-0.5 -mr-1 p-0.5 rounded-full inline-flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-800"
-                    aria-label={`Remove ${payee.name} filter`}
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -340,19 +340,19 @@ export function TransactionFilterPanel({
                 />
 
                 <MultiSelect
-                  label="Categories"
-                  options={categoryFilterOptions}
-                  value={filterCategoryIds}
-                  onChange={(values) => handleArrayFilterChange(setFilterCategoryIds, values)}
-                  placeholder="All categories"
-                />
-
-                <MultiSelect
                   label="Payees"
                   options={payeeFilterOptions}
                   value={filterPayeeIds}
                   onChange={(values) => handleArrayFilterChange(setFilterPayeeIds, values)}
                   placeholder="All payees"
+                />
+
+                <MultiSelect
+                  label="Categories"
+                  options={categoryFilterOptions}
+                  value={filterCategoryIds}
+                  onChange={(values) => handleArrayFilterChange(setFilterCategoryIds, values)}
+                  placeholder="All categories"
                 />
               </div>
 

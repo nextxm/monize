@@ -153,7 +153,7 @@ describe('PreferencesSection', () => {
     render(<PreferencesSection preferences={mockPreferences} onPreferencesUpdated={mockOnPreferencesUpdated} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Default Currency')).toBeInTheDocument();
+      expect(screen.getByText('USD - US Dollar')).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByLabelText('Default Currency'), { target: { value: 'USD' } });

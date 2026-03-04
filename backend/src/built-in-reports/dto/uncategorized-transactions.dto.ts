@@ -18,6 +18,9 @@ export class UncategorizedTransactionItem {
 
   @ApiProperty({ nullable: true })
   accountName: string | null;
+
+  @ApiProperty()
+  accountId: string;
 }
 
 export class UncategorizedTransactionsSummary {

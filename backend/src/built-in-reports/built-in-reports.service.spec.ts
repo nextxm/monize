@@ -1666,6 +1666,7 @@ describe("BuiltInReportsService", () => {
             payee_name: "Unknown Shop",
             description: "Misc purchase",
             account_name: "Checking",
+            account_id: "acc-1",
           },
         ])
         .mockResolvedValueOnce([
@@ -1689,6 +1690,7 @@ describe("BuiltInReportsService", () => {
       // EUR->USD rate 1.1, so -50 EUR = -55 USD
       expect(result.transactions[0].amount).toBeCloseTo(-55, 5);
       expect(result.transactions[0].payeeName).toBe("Unknown Shop");
+      expect(result.transactions[0].accountId).toBe("acc-1");
     });
 
     it("calculates summary totals across multiple currencies", async () => {

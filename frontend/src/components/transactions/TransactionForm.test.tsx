@@ -404,6 +404,14 @@ describe('TransactionForm', () => {
   // Existing tests (preserved)
   // =========================================================================
 
+  it('fetches accounts including closed accounts on mount', async () => {
+    render(<TransactionForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+
+    await waitFor(() => {
+      expect(mockAccountsGetAll).toHaveBeenCalledWith(true);
+    });
+  });
+
   it('renders form with mode selector buttons', async () => {
     render(<TransactionForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
 

@@ -82,7 +82,12 @@ export function UncategorizedTransactionsReport() {
   }, [reportData, filterType, sortField, sortOrder]);
 
   const handleTransactionClick = (tx: UncategorizedTransactionItem) => {
-    router.push(`/transactions?search=${encodeURIComponent(tx.payeeName || tx.description || '')}`);
+    const params = new URLSearchParams();
+    params.set('categoryIds', 'uncategorized');
+    params.set('accountIds', tx.accountId);
+    const search = tx.payeeName || tx.description;
+    if (search) params.set('search', search);
+    router.push(`/transactions?${params.toString()}`);
   };
 
   const handleSort = (field: SortField) => {
