@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { format, subMonths, subYears, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subMonths, subYears, subWeeks, startOfMonth, endOfMonth } from 'date-fns';
 
 interface UseDateRangeOptions {
   /** Which preset is selected by default. */
@@ -48,6 +48,9 @@ export function useDateRange(options: UseDateRangeOptions): UseDateRangeReturn {
       let start: string;
 
       switch (range) {
+        case '1w':
+          start = format(subWeeks(now, 1), 'yyyy-MM-dd');
+          break;
         case '1m':
           start = isMonth
             ? format(startOfMonth(subMonths(now, 0)), 'yyyy-MM-dd')

@@ -35,8 +35,12 @@ vi.mock('@/lib/utils', () => ({
   parseLocalDate: (d: string) => new Date(d + 'T00:00:00'),
 }));
 
+const mockDateRangeSelectorProps = vi.fn();
 vi.mock('@/components/ui/DateRangeSelector', () => ({
-  DateRangeSelector: () => <div data-testid="date-range-selector" />,
+  DateRangeSelector: (props: any) => {
+    mockDateRangeSelectorProps(props);
+    return <div data-testid="date-range-selector" />;
+  },
 }));
 
 vi.mock('recharts', () => ({
@@ -195,6 +199,26 @@ describe('PortfolioValueReport', () => {
     });
     // 'TFSA' appears in both the account selector dropdown and the breakdown table
     expect(screen.getAllByText('TFSA').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('passes date filter ranges including 1w, 1m, 3m, ytd to DateRangeSelector', async () => {
+    mockGetInvestmentsMonthly.mockResolvedValue([]);
+    mockGetPortfolioSummary.mockResolvedValue({
+      holdings: [],
+      holdingsByAccount: [],
+      allocation: [],
+      totalPortfolioValue: 0,
+      totalCostBasis: 0,
+      totalGainLoss: 0,
+      totalGainLossPercent: 0,
+    });
+    mockGetInvestmentAccounts.mockResolvedValue([]);
+    render(<PortfolioValueReport />);
+    await waitFor(() => {
+      expect(mockDateRangeSelectorProps).toHaveBeenCalled();
+    });
+    const lastCall = mockDateRangeSelectorProps.mock.calls[mockDateRangeSelectorProps.mock.calls.length - 1][0];
+    expect(lastCall.ranges).toEqual(['1w', '1m', '3m', 'ytd', '1y', '2y', '5y', 'all']);
   });
 
   it('renders account selector dropdown', async () => {

@@ -18,6 +18,21 @@ describe('useDateRange', () => {
     expect(result.current.isValid).toBe(true);
   });
 
+  it('resolves 1w range', () => {
+    const { result } = renderHook(() => useDateRange({ defaultRange: '1w' }));
+    expect(result.current.resolvedRange.start).toBe('2025-01-08');
+    expect(result.current.resolvedRange.end).toBe('2025-01-15');
+  });
+
+  it('resolves 1w range with month alignment', () => {
+    const { result } = renderHook(() =>
+      useDateRange({ defaultRange: '1w', alignment: 'month' })
+    );
+    // Start is 1 week ago, end snaps to end of month
+    expect(result.current.resolvedRange.start).toBe('2025-01-08');
+    expect(result.current.resolvedRange.end).toBe('2025-01-31');
+  });
+
   it('resolves 1m range', () => {
     const { result } = renderHook(() => useDateRange({ defaultRange: '1m' }));
     expect(result.current.resolvedRange.start).toBe('2024-12-15');
