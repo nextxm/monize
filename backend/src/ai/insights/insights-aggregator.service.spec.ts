@@ -13,6 +13,7 @@ describe("InsightsAggregatorService", () => {
 
   const mockQueryBuilder = () => {
     const qb: Record<string, jest.Mock> = {
+      innerJoin: jest.fn().mockReturnThis(),
       leftJoin: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),

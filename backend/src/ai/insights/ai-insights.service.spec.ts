@@ -520,8 +520,9 @@ describe("AiInsightsService", () => {
 
       const prompt = mockAiService.complete!.mock.calls[0][1].messages[0]
         .content as string;
-      expect(prompt).toContain("vs avg=");
-      expect(prompt).toContain("vs prev=");
+      expect(prompt).toContain("vs avg:");
+      expect(prompt).toContain("vs prev:");
+      expect(prompt).toContain("ABOVE average");
       expect(prompt).toContain("Projected full-month spending");
       expect(prompt).toContain("Projected vs average");
     });
