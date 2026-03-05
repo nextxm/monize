@@ -143,7 +143,7 @@ export function DeactivateUnusedPayeesDialog({
           {/* Maximum Transactions */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Fewer than <span className="font-bold">{maxTransactions}</span> transaction{maxTransactions !== 1 ? 's' : ''}
+              <span className="font-bold">{maxTransactions}</span> or fewer transaction{maxTransactions !== 1 ? 's' : ''}
             </label>
             <input
               type="range"
