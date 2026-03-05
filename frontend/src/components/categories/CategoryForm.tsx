@@ -16,7 +16,6 @@ const categorySchema = z.object({
   name: z.string().min(1, 'Category name is required').max(255),
   parentId: z.string().optional(),
   description: z.string().optional(),
-  icon: z.string().optional(),
   color: z.string().optional(),
   isIncome: z.boolean(),
 });
@@ -58,7 +57,6 @@ export function CategoryForm({ category, categories, onSubmit, onCancel, onDirty
           name: category.name,
           parentId: category.parentId || '',
           description: category.description || '',
-          icon: category.icon || '',
           color: category.color || '',
           isIncome: category.isIncome,
         }
@@ -173,7 +171,33 @@ export function CategoryForm({ category, categories, onSubmit, onCancel, onDirty
         <div>
           <input type="hidden" {...register('color')} />
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Colour</label>
-          <div className="flex flex-wrap gap-2 items-center">
+          {/* Mobile: dropdown select */}
+          <div className="md:hidden">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 flex-shrink-0"
+                style={
+                  watchedColor
+                    ? { backgroundColor: watchedColor }
+                    : parentCategory?.effectiveColor
+                      ? { backgroundColor: parentCategory.effectiveColor, opacity: 0.4 }
+                      : { backgroundColor: '#e5e7eb' }
+                }
+              />
+              <select
+                value={watchedColor || ''}
+                onChange={(e) => setValue('color', e.target.value, { shouldDirty: true })}
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-800 dark:text-gray-100 text-sm"
+              >
+                <option value="">{hasParent ? 'Inherit from parent' : 'No colour'}</option>
+                {colourPalette.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {/* Desktop: colour swatches */}
+          <div className="hidden md:flex flex-wrap gap-2 items-center">
             <button
               type="button"
               onClick={() => setValue('color', '', { shouldDirty: true })}
@@ -217,13 +241,6 @@ export function CategoryForm({ category, categories, onSubmit, onCancel, onDirty
           )}
         </div>
       </div>
-
-      <Input
-        label="Icon (optional)"
-        placeholder="e.g., shopping-cart"
-        error={errors.icon?.message}
-        {...register('icon')}
-      />
 
       <Input
         label="Description (optional)"

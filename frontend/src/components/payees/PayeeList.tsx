@@ -24,6 +24,7 @@ interface PayeeListProps {
   payees: Payee[];
   onEdit: (payee: Payee) => void;
   onRefresh: () => void;
+  onDelete?: (payeeId: string) => void;
   density?: DensityLevel;
   onDensityChange?: (density: DensityLevel) => void;
   sortField?: SortField;
@@ -136,6 +137,7 @@ export function PayeeList({
   payees,
   onEdit,
   onRefresh,
+  onDelete,
   density: propDensity,
   onDensityChange,
   sortField: propSortField,
@@ -214,7 +216,11 @@ export function PayeeList({
     try {
       await payeesApi.delete(deletePayee.id);
       toast.success('Payee deleted successfully');
-      onRefresh();
+      if (onDelete) {
+        onDelete(deletePayee.id);
+      } else {
+        onRefresh();
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to delete payee'));
       logger.error(error);

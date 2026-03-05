@@ -244,6 +244,7 @@ function CategoriesContent() {
               categories={filteredCategories}
               onEdit={openEdit}
               onRefresh={loadCategories}
+              onDelete={(deletedId) => setCategories(prev => prev.filter(c => c.id !== deletedId && c.parentId !== deletedId))}
               density={listDensity}
               onDensityChange={setListDensity}
             />

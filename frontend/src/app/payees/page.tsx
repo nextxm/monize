@@ -221,6 +221,7 @@ function PayeesContent() {
               payees={paginatedPayees}
               onEdit={openEdit}
               onRefresh={loadData}
+              onDelete={(deletedId) => setPayees(prev => prev.filter(p => p.id !== deletedId))}
               density={listDensity}
               onDensityChange={setListDensity}
               sortField={sortField}

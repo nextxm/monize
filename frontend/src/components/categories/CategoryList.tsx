@@ -129,6 +129,7 @@ interface CategoryListProps {
   categories: Category[];
   onEdit: (category: Category) => void;
   onRefresh: () => void;
+  onDelete?: (categoryId: string) => void;
   density?: DensityLevel;
   onDensityChange?: (density: DensityLevel) => void;
 }
@@ -137,6 +138,7 @@ export function CategoryList({
   categories,
   onEdit,
   onRefresh,
+  onDelete,
   density: propDensity,
   onDensityChange,
 }: CategoryListProps) {
@@ -193,7 +195,11 @@ export function CategoryList({
 
       await categoriesApi.delete(deleteCategory.id);
       toast.success('Category deleted successfully');
-      onRefresh();
+      if (onDelete) {
+        onDelete(deleteCategory.id);
+      } else {
+        onRefresh();
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to delete category'));
       logger.error(error);
