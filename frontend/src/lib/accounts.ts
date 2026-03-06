@@ -136,4 +136,29 @@ export const accountsApi = {
     invalidateCache('accounts:');
     return response.data;
   },
+
+  // Export account transactions
+  exportAccount: async (id: string, format: 'csv' | 'qif', options?: { expandSplits?: boolean }): Promise<void> => {
+    const params: Record<string, string> = { format };
+    if (options?.expandSplits === false) {
+      params.expandSplits = 'false';
+    }
+    const response = await apiClient.get(`/accounts/${id}/export`, {
+      params,
+      responseType: 'blob',
+    });
+    const contentDisposition = response.headers['content-disposition'] || '';
+    const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+    const filename = filenameMatch ? filenameMatch[1] : `account.${format}`;
+
+    const blob = new Blob([response.data], { type: response.headers['content-type'] });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  },
 };

@@ -1,10 +1,13 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { BadRequestException } from "@nestjs/common";
 import { AccountsController } from "./accounts.controller";
 import { AccountsService } from "./accounts.service";
+import { AccountExportService } from "./account-export.service";
 
 describe("AccountsController", () => {
   let controller: AccountsController;
   let mockAccountsService: Partial<Record<keyof AccountsService, jest.Mock>>;
+  let mockExportService: Partial<Record<keyof AccountExportService, jest.Mock>>;
   const mockReq = { user: { id: "user-1" } };
 
   beforeEach(async () => {
@@ -26,12 +29,21 @@ describe("AccountsController", () => {
       getDailyBalances: jest.fn(),
     };
 
+    mockExportService = {
+      exportCsv: jest.fn(),
+      exportQif: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AccountsController],
       providers: [
         {
           provide: AccountsService,
           useValue: mockAccountsService,
+        },
+        {
+          provide: AccountExportService,
+          useValue: mockExportService,
         },
       ],
     }).compile();
@@ -314,6 +326,142 @@ describe("AccountsController", () => {
       expect(mockAccountsService.delete).toHaveBeenCalledWith(
         "user-1",
         "account-1",
+      );
+    });
+  });
+
+  describe("exportAccount()", () => {
+    const mockRes = {
+      setHeader: jest.fn(),
+      send: jest.fn(),
+    } as any;
+
+    it("exports CSV format with expandSplits defaulting to true", async () => {
+      mockAccountsService.findOne!.mockResolvedValue({
+        name: "Chequing",
+      });
+      mockExportService.exportCsv!.mockResolvedValue("csv-content");
+
+      await controller.exportAccount(
+        mockReq,
+        "account-1",
+        "csv",
+        undefined,
+        mockRes,
+      );
+
+      expect(mockExportService.exportCsv).toHaveBeenCalledWith(
+        "user-1",
+        "account-1",
+        { expandSplits: true },
+      );
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        "Content-Type",
+        "text/csv; charset=utf-8",
+      );
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        "Content-Disposition",
+        'attachment; filename="Chequing.csv"',
+      );
+      expect(mockRes.send).toHaveBeenCalledWith("csv-content");
+    });
+
+    it("passes expandSplits false to CSV export (string)", async () => {
+      mockAccountsService.findOne!.mockResolvedValue({
+        name: "Chequing",
+      });
+      mockExportService.exportCsv!.mockResolvedValue("csv-content");
+
+      await controller.exportAccount(
+        mockReq,
+        "account-1",
+        "csv",
+        "false",
+        mockRes,
+      );
+
+      expect(mockExportService.exportCsv).toHaveBeenCalledWith(
+        "user-1",
+        "account-1",
+        { expandSplits: false },
+      );
+    });
+
+    it("passes expandSplits false to CSV export (boolean from transform)", async () => {
+      mockAccountsService.findOne!.mockResolvedValue({
+        name: "Chequing",
+      });
+      mockExportService.exportCsv!.mockResolvedValue("csv-content");
+
+      await controller.exportAccount(
+        mockReq,
+        "account-1",
+        "csv",
+        false as any,
+        mockRes,
+      );
+
+      expect(mockExportService.exportCsv).toHaveBeenCalledWith(
+        "user-1",
+        "account-1",
+        { expandSplits: false },
+      );
+    });
+
+    it("exports QIF format", async () => {
+      mockAccountsService.findOne!.mockResolvedValue({
+        name: "Savings",
+      });
+      mockExportService.exportQif!.mockResolvedValue("qif-content");
+
+      await controller.exportAccount(
+        mockReq,
+        "account-1",
+        "qif",
+        undefined,
+        mockRes,
+      );
+
+      expect(mockExportService.exportQif).toHaveBeenCalledWith(
+        "user-1",
+        "account-1",
+      );
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        "Content-Type",
+        "application/x-qif; charset=utf-8",
+      );
+      expect(mockRes.send).toHaveBeenCalledWith("qif-content");
+    });
+
+    it("throws BadRequestException for invalid format", async () => {
+      await expect(
+        controller.exportAccount(
+          mockReq,
+          "account-1",
+          "xml",
+          undefined,
+          mockRes,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("sanitizes account name in filename", async () => {
+      mockAccountsService.findOne!.mockResolvedValue({
+        name: "My Account / Special",
+      });
+      mockExportService.exportCsv!.mockResolvedValue("csv");
+
+      await controller.exportAccount(
+        mockReq,
+        "account-1",
+        "csv",
+        undefined,
+        mockRes,
+      );
+
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        "Content-Disposition",
+        'attachment; filename="My_Account___Special.csv"',
       );
     });
   });
