@@ -42,12 +42,17 @@ vi.mock('@/store/authStore', () => ({
 }));
 
 // Mock preferences store
+const mockUpdatePreferences = vi.fn();
+const mockLoadPreferences = vi.fn().mockResolvedValue(undefined);
+let currentFavouriteReportIds: string[] = [];
 vi.mock('@/store/preferencesStore', () => ({
   usePreferencesStore: (selector?: any) => {
     const state = {
-      preferences: { twoFactorEnabled: true, theme: 'system' },
+      preferences: { twoFactorEnabled: true, theme: 'system', favouriteReportIds: currentFavouriteReportIds },
       isLoaded: true,
       _hasHydrated: true,
+      updatePreferences: mockUpdatePreferences,
+      loadPreferences: mockLoadPreferences,
     };
     return selector ? selector(state) : state;
   },
@@ -60,6 +65,16 @@ vi.mock('@/lib/auth', () => ({
       local: true, oidc: false, registration: true, smtp: false, force2fa: false, demo: false,
     }),
     logout: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+// Mock user settings API
+const mockGetSettingsPreferences = vi.fn().mockResolvedValue({ favouriteReportIds: [] });
+const mockUpdateSettingsPreferences = vi.fn().mockResolvedValue({ favouriteReportIds: [] });
+vi.mock('@/lib/user-settings', () => ({
+  userSettingsApi: {
+    getPreferences: (...args: any[]) => mockGetSettingsPreferences(...args),
+    updatePreferences: (...args: any[]) => mockUpdateSettingsPreferences(...args),
   },
 }));
 
@@ -85,10 +100,8 @@ vi.mock('@/components/layout/AppHeader', () => ({
 
 const mockSetDensity = vi.fn();
 const mockSetCategoryFilter = vi.fn();
-const mockSetFavouriteReportIds = vi.fn();
 let currentDensity = 'normal';
 let currentCategoryFilter = 'all';
-let currentFavouriteReportIds: string[] = [];
 
 vi.mock('@/hooks/useLocalStorage', () => ({
   useLocalStorage: (key: string, defaultValue: any) => {
@@ -97,9 +110,6 @@ vi.mock('@/hooks/useLocalStorage', () => ({
     }
     if (key === 'monize-reports-category') {
       return [currentCategoryFilter, mockSetCategoryFilter];
-    }
-    if (key === 'monize-favourite-reports') {
-      return [currentFavouriteReportIds, mockSetFavouriteReportIds];
     }
     return [defaultValue, vi.fn()];
   },
@@ -140,6 +150,8 @@ describe('ReportsPage', () => {
     currentCategoryFilter = 'all';
     currentFavouriteReportIds = [];
     mockGetAllReports.mockResolvedValue([]);
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
+    mockUpdateSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
   });
 
   it('renders the Reports heading', async () => {
@@ -503,14 +515,26 @@ describe('ReportsPage', () => {
     expect(removeStars.length).toBe(1);
   });
 
-  it('clicking favourite star on built-in report calls setter', async () => {
+  it('clicking favourite star on built-in report updates preferences and calls API', async () => {
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
+    mockUpdateSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category'] });
     render(<ReportsPage />);
     await waitFor(() => {
       expect(screen.getByText('Spending by Category')).toBeInTheDocument();
     });
     const stars = screen.getAllByTitle('Add to favourites');
     fireEvent.click(stars[0]);
-    expect(mockSetFavouriteReportIds).toHaveBeenCalled();
+    // Optimistic update fires immediately
+    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+      favouriteReportIds: ['spending-by-category'],
+    });
+    // Then fetches server state and saves
+    await waitFor(() => {
+      expect(mockGetSettingsPreferences).toHaveBeenCalled();
+      expect(mockUpdateSettingsPreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['spending-by-category'],
+      });
+    });
   });
 
   it('clicking favourite star does not navigate to the report', async () => {
@@ -609,33 +633,141 @@ describe('ReportsPage', () => {
     expect(pageHeader).not.toHaveTextContent('Normal');
   });
 
-  it('unfavouriting a built-in report calls setter to remove it', async () => {
+  it('unfavouriting a built-in report removes it from preferences', async () => {
     currentFavouriteReportIds = ['spending-by-category'];
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category'] });
+    mockUpdateSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
     render(<ReportsPage />);
     await waitFor(() => {
       expect(screen.getByText('Spending by Category')).toBeInTheDocument();
     });
     const removeStar = screen.getByTitle('Remove from favourites');
     fireEvent.click(removeStar);
-    expect(mockSetFavouriteReportIds).toHaveBeenCalled();
-    // Verify the updater function removes the ID
-    const updater = mockSetFavouriteReportIds.mock.calls[0][0];
-    const result = updater(['spending-by-category']);
-    expect(result).toEqual([]);
+    // Optimistic update
+    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+      favouriteReportIds: [],
+    });
+    // Server round-trip
+    await waitFor(() => {
+      expect(mockUpdateSettingsPreferences).toHaveBeenCalledWith({
+        favouriteReportIds: [],
+      });
+    });
   });
 
-  it('favouriting a built-in report calls setter to add it', async () => {
+  it('favouriting a built-in report adds it to preferences', async () => {
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
+    mockUpdateSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category'] });
     render(<ReportsPage />);
     await waitFor(() => {
       expect(screen.getByText('Spending by Category')).toBeInTheDocument();
     });
     const stars = screen.getAllByTitle('Add to favourites');
     fireEvent.click(stars[0]);
-    expect(mockSetFavouriteReportIds).toHaveBeenCalled();
-    // Verify the updater function adds the ID
-    const updater = mockSetFavouriteReportIds.mock.calls[0][0];
-    const result = updater([]);
-    expect(result).toContain('spending-by-category');
+    // Optimistic update
+    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+      favouriteReportIds: ['spending-by-category'],
+    });
+    // Reconciles with server response
+    await waitFor(() => {
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['spending-by-category'],
+      });
+    });
+  });
+
+  it('reverts optimistic update when built-in favourite API call fails', async () => {
+    mockGetSettingsPreferences.mockRejectedValueOnce(new Error('Network error'));
+    render(<ReportsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Spending by Category')).toBeInTheDocument();
+    });
+    const stars = screen.getAllByTitle('Add to favourites');
+    fireEvent.click(stars[0]);
+    // Optimistic update fires immediately
+    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+      favouriteReportIds: ['spending-by-category'],
+    });
+    // After API failure, should revert
+    await waitFor(() => {
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({
+        favouriteReportIds: [],
+      });
+    });
+  });
+
+  it('merges with server state when toggling favourites across devices', async () => {
+    // Local store has only 'spending-by-category', but server also has 'net-worth' from another device
+    currentFavouriteReportIds = ['spending-by-category'];
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category', 'net-worth'] });
+    mockUpdateSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category', 'net-worth', 'tax-summary'] });
+    render(<ReportsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Tax Summary')).toBeInTheDocument();
+    });
+    // Favourite 'tax-summary'
+    const taxCard = screen.getByText('Tax Summary').closest('button')!;
+    const star = taxCard.querySelector('[title="Add to favourites"]')!;
+    fireEvent.click(star);
+    // Server fetch should include 'net-worth' from other device
+    await waitFor(() => {
+      expect(mockUpdateSettingsPreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['spending-by-category', 'net-worth', 'tax-summary'],
+      });
+    });
+  });
+
+  it('migrates localStorage favourites to backend on first load', async () => {
+    localStorage.setItem('monize-favourite-reports', JSON.stringify(['net-worth', 'tax-summary']));
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: [] });
+    mockUpdateSettingsPreferences.mockResolvedValue({});
+    render(<ReportsPage />);
+    await waitFor(() => {
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['net-worth', 'tax-summary'],
+      });
+    });
+    await waitFor(() => {
+      expect(mockUpdateSettingsPreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['net-worth', 'tax-summary'],
+      });
+    });
+    await waitFor(() => {
+      expect(localStorage.getItem('monize-favourite-reports')).toBeNull();
+    });
+  });
+
+  it('merges localStorage favourites with existing backend favourites', async () => {
+    localStorage.setItem('monize-favourite-reports', JSON.stringify(['net-worth', 'spending-by-category']));
+    // Server already has 'spending-by-category' from another device
+    mockGetSettingsPreferences.mockResolvedValue({ favouriteReportIds: ['spending-by-category'] });
+    mockUpdateSettingsPreferences.mockResolvedValue({});
+    render(<ReportsPage />);
+    await waitFor(() => {
+      // Should deduplicate 'spending-by-category' and merge 'net-worth'
+      expect(mockUpdatePreferences).toHaveBeenCalledWith({
+        favouriteReportIds: ['spending-by-category', 'net-worth'],
+      });
+    });
+  });
+
+  it('removes invalid JSON from localStorage without crashing', async () => {
+    localStorage.setItem('monize-favourite-reports', 'not-valid-json');
+    render(<ReportsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Spending by Category')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('monize-favourite-reports')).toBeNull();
+  });
+
+  it('removes empty array from localStorage without calling API', async () => {
+    localStorage.setItem('monize-favourite-reports', JSON.stringify([]));
+    render(<ReportsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Spending by Category')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('monize-favourite-reports')).toBeNull();
+    expect(mockUpdateSettingsPreferences).not.toHaveBeenCalled();
   });
 
   it('handles custom report toggleFavourite API error gracefully', async () => {

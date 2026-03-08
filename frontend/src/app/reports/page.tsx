@@ -6,6 +6,8 @@ import { PageLayout } from '@/components/layout/PageLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { usePreferencesStore } from '@/store/preferencesStore';
+import { userSettingsApi } from '@/lib/user-settings';
 import { customReportsApi } from '@/lib/custom-reports';
 import { CustomReport, VIEW_TYPE_LABELS, TIMEFRAME_LABELS } from '@/types/custom-report';
 import { getIconComponent } from '@/components/ui/IconPicker';
@@ -563,7 +565,41 @@ function ReportsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [customReports, setCustomReports] = useState<CustomReport[]>([]);
   const [isLoadingCustom, setIsLoadingCustom] = useState(true);
-  const [favouriteReportIds, setFavouriteReportIds] = useLocalStorage<string[]>('monize-favourite-reports', []);
+  const preferences = usePreferencesStore((s) => s.preferences);
+  const updateStorePreferences = usePreferencesStore((s) => s.updatePreferences);
+  const loadPreferences = usePreferencesStore((s) => s.loadPreferences);
+  const favouriteReportIds = preferences?.favouriteReportIds ?? [];
+
+  // Refresh preferences from server on mount to pick up changes from other devices
+  useEffect(() => {
+    loadPreferences();
+  }, [loadPreferences]);
+
+  // One-time migration: move localStorage favourites to backend
+  useEffect(() => {
+    const stored = localStorage.getItem('monize-favourite-reports');
+    if (!stored || !preferences) return;
+    try {
+      const ids = JSON.parse(stored) as string[];
+      if (!Array.isArray(ids) || ids.length === 0) {
+        localStorage.removeItem('monize-favourite-reports');
+        return;
+      }
+      // Fetch latest from server to merge correctly with other devices
+      userSettingsApi.getPreferences().then((serverPrefs) => {
+        const serverIds = serverPrefs.favouriteReportIds ?? [];
+        const merged = [...new Set([...serverIds, ...ids])];
+        updateStorePreferences({ favouriteReportIds: merged });
+        return userSettingsApi.updatePreferences({ favouriteReportIds: merged });
+      }).then(() => {
+        localStorage.removeItem('monize-favourite-reports');
+      }).catch((error) => {
+        logger.error('Failed to migrate favourite reports:', error);
+      });
+    } catch {
+      localStorage.removeItem('monize-favourite-reports');
+    }
+  }, [preferences !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const loadCustomReports = async () => {
@@ -601,11 +637,25 @@ function ReportsContent() {
         logger.error('Failed to toggle favourite:', error);
       }
     } else {
-      setFavouriteReportIds(prev =>
-        prev.includes(report.id)
-          ? prev.filter(id => id !== report.id)
-          : [...prev, report.id]
-      );
+      const wasFavourite = favouriteReportIds.includes(report.id);
+      // Optimistic update for immediate UI feedback
+      const optimistic = wasFavourite
+        ? favouriteReportIds.filter(id => id !== report.id)
+        : [...favouriteReportIds, report.id];
+      updateStorePreferences({ favouriteReportIds: optimistic });
+      try {
+        // Fetch latest from server to avoid overwriting other devices' changes
+        const serverPrefs = await userSettingsApi.getPreferences();
+        const serverIds = serverPrefs.favouriteReportIds ?? [];
+        const updated = wasFavourite
+          ? serverIds.filter(id => id !== report.id)
+          : serverIds.includes(report.id) ? serverIds : [...serverIds, report.id];
+        const saved = await userSettingsApi.updatePreferences({ favouriteReportIds: updated });
+        updateStorePreferences({ favouriteReportIds: saved.favouriteReportIds });
+      } catch (error) {
+        logger.error('Failed to update favourite reports:', error);
+        updateStorePreferences({ favouriteReportIds: favouriteReportIds });
+      }
     }
   };
 
