@@ -230,10 +230,16 @@ export class TransactionBulkUpdateService {
       .map((t) => t.id);
 
     if (transferCount > 0) {
-      skippedReasons.push(`${transferCount} transfer`);
+      const plural = transferCount !== 1 ? 's' : '';
+      skippedReasons.push(
+        `${transferCount} transfer${plural} skipped (transfers must be updated individually to keep both sides in sync)`,
+      );
     }
     if (splitCount > 0) {
-      skippedReasons.push(`${splitCount} split`);
+      const plural = splitCount !== 1 ? 's' : '';
+      skippedReasons.push(
+        `${splitCount} split transaction${plural} skipped (split categories must be updated individually)`,
+      );
     }
 
     return {

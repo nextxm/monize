@@ -283,7 +283,12 @@ describe("TransactionBulkUpdateService", () => {
 
       expect(result.updated).toBe(1);
       expect(result.skipped).toBe(1);
-      expect(result.skippedReasons).toContain("1 transfer");
+      expect(result.skippedReasons).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("1 transfer"),
+        ]),
+      );
+      expect(result.skippedReasons[0]).toContain("keep both sides in sync");
     });
 
     it("skips split transactions when updating category", async () => {
@@ -320,7 +325,12 @@ describe("TransactionBulkUpdateService", () => {
 
       expect(result.updated).toBe(1);
       expect(result.skipped).toBe(1);
-      expect(result.skippedReasons).toContain("1 split");
+      expect(result.skippedReasons).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("1 split transaction"),
+        ]),
+      );
+      expect(result.skippedReasons[0]).toContain("updated individually");
     });
 
     it("adjusts balances when changing status to VOID", async () => {
