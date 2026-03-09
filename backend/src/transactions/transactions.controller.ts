@@ -137,6 +137,17 @@ export class TransactionsController {
     description: "Filter by maximum amount (inclusive)",
   })
   @ApiQuery({
+    name: "sortBy",
+    required: false,
+    description:
+      "Sort field (default: transactionDate). Allowed: transactionDate, amount, payeeName, categoryName, accountName, status",
+  })
+  @ApiQuery({
+    name: "sortDirection",
+    required: false,
+    description: "Sort direction (default: DESC). Allowed: ASC, DESC",
+  })
+  @ApiQuery({
     name: "targetTransactionId",
     required: false,
     description:
@@ -165,6 +176,8 @@ export class TransactionsController {
     @Query("targetTransactionId") targetTransactionId?: string,
     @Query("amountFrom") amountFrom?: string,
     @Query("amountTo") amountTo?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortDirection") sortDirection?: string,
   ) {
     // Validate pagination parameters
     if (page !== undefined) {
@@ -189,6 +202,29 @@ export class TransactionsController {
 
     if (targetTransactionId && !UUID_REGEX.test(targetTransactionId)) {
       throw new BadRequestException("targetTransactionId must be a valid UUID");
+    }
+
+    const ALLOWED_SORT_FIELDS = [
+      "transactionDate",
+      "amount",
+      "payeeName",
+      "categoryName",
+      "accountName",
+      "status",
+    ];
+    if (sortBy && !ALLOWED_SORT_FIELDS.includes(sortBy)) {
+      throw new BadRequestException(
+        `sortBy must be one of: ${ALLOWED_SORT_FIELDS.join(", ")}`,
+      );
+    }
+
+    const ALLOWED_SORT_DIRECTIONS = ["ASC", "DESC"];
+    const normalizedSortDirection = sortDirection?.toUpperCase();
+    if (
+      normalizedSortDirection &&
+      !ALLOWED_SORT_DIRECTIONS.includes(normalizedSortDirection)
+    ) {
+      throw new BadRequestException("sortDirection must be ASC or DESC");
     }
 
     // Truncate search to prevent excessive ILIKE query length
@@ -220,6 +256,15 @@ export class TransactionsController {
       targetTransactionId,
       parsedAmountFrom,
       parsedAmountTo,
+      sortBy as
+        | "transactionDate"
+        | "amount"
+        | "payeeName"
+        | "categoryName"
+        | "accountName"
+        | "status"
+        | undefined,
+      normalizedSortDirection as "ASC" | "DESC" | undefined,
     );
   }
 

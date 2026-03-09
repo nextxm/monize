@@ -86,6 +86,8 @@ describe("TransactionsController", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
       );
     });
 
@@ -114,6 +116,8 @@ describe("TransactionsController", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
       );
     });
 
@@ -132,6 +136,8 @@ describe("TransactionsController", () => {
         undefined,
         undefined,
         false,
+        undefined,
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -166,6 +172,8 @@ describe("TransactionsController", () => {
         2,
         25,
         false,
+        undefined,
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -205,6 +213,8 @@ describe("TransactionsController", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
       );
     });
 
@@ -240,6 +250,8 @@ describe("TransactionsController", () => {
         false,
         "grocery",
         uuid3,
+        undefined,
+        undefined,
         undefined,
         undefined,
       );
@@ -807,6 +819,178 @@ describe("TransactionsController", () => {
     });
   });
 
+  describe("findAll() sort params", () => {
+    it("passes sortBy and sortDirection to service", async () => {
+      mockService.findAll.mockResolvedValue({ data: [], total: 0 });
+
+      await controller.findAll(
+        mockReq,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "amount",
+        "ASC",
+      );
+
+      expect(mockService.findAll).toHaveBeenCalledWith(
+        "user-1",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "amount",
+        "ASC",
+      );
+    });
+
+    it("normalizes sortDirection to uppercase", async () => {
+      mockService.findAll.mockResolvedValue({ data: [], total: 0 });
+
+      await controller.findAll(
+        mockReq,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "payeeName",
+        "desc",
+      );
+
+      expect(mockService.findAll).toHaveBeenCalledWith(
+        "user-1",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "payeeName",
+        "DESC",
+      );
+    });
+
+    it("rejects invalid sortBy value", () => {
+      expect(() =>
+        controller.findAll(
+          mockReq,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "invalidField",
+        ),
+      ).toThrow(BadRequestException);
+    });
+
+    it("rejects invalid sortDirection value", () => {
+      expect(() =>
+        controller.findAll(
+          mockReq,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "amount",
+          "INVALID",
+        ),
+      ).toThrow(BadRequestException);
+    });
+
+    it("allows all valid sortBy fields", async () => {
+      const validFields = [
+        "transactionDate",
+        "amount",
+        "payeeName",
+        "categoryName",
+        "accountName",
+        "status",
+      ];
+      for (const field of validFields) {
+        mockService.findAll.mockResolvedValue({ data: [], total: 0 });
+        await controller.findAll(
+          mockReq,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          field,
+        );
+        expect(mockService.findAll).toHaveBeenCalled();
+        mockService.findAll.mockClear();
+      }
+    });
+  });
+
   describe("findAll() amount filters", () => {
     it("parses amountFrom and amountTo as floats", async () => {
       mockService.findAll.mockResolvedValue({ data: [], total: 0 });
@@ -844,6 +1028,8 @@ describe("TransactionsController", () => {
         undefined,
         -100.5,
         500.25,
+        undefined,
+        undefined,
       );
     });
 
