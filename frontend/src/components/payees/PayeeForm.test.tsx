@@ -10,6 +10,14 @@ vi.mock('@/lib/categoryUtils', () => ({
   buildCategoryTree: (cats: any[]) => cats.map((c: any) => ({ category: c, level: 0 })),
 }));
 
+vi.mock('@/lib/payees', () => ({
+  payeesApi: {
+    getAliases: vi.fn().mockResolvedValue([]),
+    createAlias: vi.fn().mockResolvedValue({ id: 'a1', alias: 'test', payeeId: 'p1' }),
+    deleteAlias: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 describe('PayeeForm', () => {
   const categories = [
     { id: 'c1', name: 'Food', parentId: null },
