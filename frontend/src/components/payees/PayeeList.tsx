@@ -128,7 +128,7 @@ const PayeeRow = memo(function PayeeRow({
         {payee.aliasCount ?? 0}
       </td>
       <td className={`${cellPadding} whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 hidden lg:table-cell`}>
-        {payee.createdAt ? formatDate(payee.createdAt) : '-'}
+        {payee.createdAt ? formatDate(payee.createdAt.substring(0, 10)) : '-'}
       </td>
       {showStatusColumn && (
         <td className={`${cellPadding} whitespace-nowrap hidden sm:table-cell`}>
