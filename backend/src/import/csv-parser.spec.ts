@@ -449,6 +449,30 @@ describe("CSV Parser", () => {
         expect(result.transactions[0].payee).toBe("scriptalert(1)/script");
       });
 
+      it("converts all-caps payee to Proper Case", () => {
+        const csv =
+          "Date,Amount,Payee\n01/15/2026,-50.00,WALMART GROCERY STORE\n";
+        const result = parseCsv(csv, baseConfig());
+
+        expect(result.transactions[0].payee).toBe("Walmart Grocery Store");
+      });
+
+      it("leaves mixed-case payee unchanged", () => {
+        const csv =
+          "Date,Amount,Payee\n01/15/2026,-50.00,McDonald's Restaurant\n";
+        const result = parseCsv(csv, baseConfig());
+
+        expect(result.transactions[0].payee).toBe("McDonald's Restaurant");
+      });
+
+      it("converts all-caps payee with numbers and symbols", () => {
+        const csv =
+          "Date,Amount,Payee\n01/15/2026,-50.00,COSTCO #1234 - WAREHOUSE\n";
+        const result = parseCsv(csv, baseConfig());
+
+        expect(result.transactions[0].payee).toBe("Costco #1234 - Warehouse");
+      });
+
       it("strips HTML angle brackets from memo", () => {
         const csv =
           "Date,Amount,Payee,Memo\n01/15/2026,-50.00,Store,<img src=x onerror=alert(1)>\n";

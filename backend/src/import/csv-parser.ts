@@ -63,6 +63,25 @@ function truncate(value: string, maxLength: number): string {
 }
 
 /**
+ * Check if a string is all uppercase (ignoring non-letter characters).
+ * Returns false for strings with no letters or mixed case.
+ */
+function isAllCaps(value: string): boolean {
+  const letters = value.replace(/[^a-zA-Z]/g, "");
+  return letters.length > 0 && letters === letters.toUpperCase();
+}
+
+/**
+ * Convert an all-caps string to Proper Case (capitalize first letter of
+ * each word, lowercase the rest). Preserves non-letter characters.
+ */
+function toProperCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase());
+}
+
+/**
  * Auto-detect the delimiter used in a CSV file by examining the first
  * few lines. Checks for tabs and semicolons before falling back to comma.
  */
@@ -534,7 +553,8 @@ export function parseCsv(
     }
 
     // Extract text fields with sanitization
-    const payee = truncate(getField(row, config.payee), FIELD_LIMITS.PAYEE);
+    const rawPayee = truncate(getField(row, config.payee), FIELD_LIMITS.PAYEE);
+    const payee = isAllCaps(rawPayee) ? toProperCase(rawPayee) : rawPayee;
     let category = truncate(
       getField(row, config.category),
       FIELD_LIMITS.CATEGORY,
