@@ -18,12 +18,12 @@ const navLinks = [
   { href: '/reports', label: 'Reports' },
 ];
 
-const toolsLinks = [
+const toolsLinks: { href: string; label: string; badge?: string }[] = [
   { href: '/categories', label: 'Categories' },
   { href: '/payees', label: 'Payees' },
   { href: '/securities', label: 'Securities' },
   { href: '/currencies', label: 'Currencies' },
-  { href: '/import', label: 'Import Transactions' },
+  { href: '/import', label: 'Import Transactions', badge: 'Beta' },
 ];
 
 const aiLinks = [
@@ -178,6 +178,11 @@ export function AppHeader() {
                         }`}
                       >
                         {link.label}
+                        {link.badge && (
+                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                            {link.badge}
+                          </span>
+                        )}
                       </button>
                     ))}
 
@@ -325,6 +330,11 @@ export function AppHeader() {
                           }`}
                         >
                           {link.label}
+                          {link.badge && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                              {link.badge}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>

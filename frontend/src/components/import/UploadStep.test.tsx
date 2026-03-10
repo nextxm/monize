@@ -56,7 +56,7 @@ describe('UploadStep', () => {
   it('renders the upload heading and instructions', () => {
     render(<UploadStep preselectedAccount={undefined} isLoading={false} onFileSelect={onFileSelect} />);
 
-    expect(screen.getByText('Upload Transaction Files')).toBeInTheDocument();
+    expect(screen.getByText(/Upload Transaction Files/)).toBeInTheDocument();
     expect(screen.getByText(/Select one or more files to import/)).toBeInTheDocument();
   });
 
