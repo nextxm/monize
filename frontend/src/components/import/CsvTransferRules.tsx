@@ -64,7 +64,7 @@ export function CsvTransferRules({ rules, onChange, accounts }: CsvTransferRules
               Remove
             </button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:flex-1">
             <span className="text-xs text-gray-500 dark:text-gray-400">contains</span>
             <input
               type="text"
@@ -74,7 +74,7 @@ export function CsvTransferRules({ rules, onChange, accounts }: CsvTransferRules
               className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:flex-1">
             <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">as transfer from/to</span>
             <select
               value={rule.accountName}
