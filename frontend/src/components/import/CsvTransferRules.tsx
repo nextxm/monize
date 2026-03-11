@@ -81,12 +81,19 @@ export function CsvTransferRules({ rules, onChange, accounts }: CsvTransferRules
             </select>
             <button
               onClick={() => removeRule(index)}
-              className="text-red-500 hover:text-red-700 text-sm px-1"
+              className="sm:inline-flex hidden text-red-500 hover:text-red-700 text-sm px-1"
               title="Remove rule"
             >
               X
             </button>
           </div>
+          <button
+            onClick={() => removeRule(index)}
+            className="sm:hidden self-end text-red-500 hover:text-red-700 text-sm px-1"
+            title="Remove rule"
+          >
+            Remove
+          </button>
         </div>
       ))}
     </div>
