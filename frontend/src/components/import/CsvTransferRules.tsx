@@ -51,11 +51,20 @@ export function CsvTransferRules({ rules, onChange, accounts }: CsvTransferRules
             <select
               value={rule.type}
               onChange={(e) => updateRule(index, 'type', e.target.value)}
-              className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              className="flex-1 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             >
               <option value="payee">Payee</option>
               <option value="category">Category</option>
             </select>
+            <button
+              onClick={() => removeRule(index)}
+              className="text-red-500 hover:text-red-700 text-sm px-1"
+              title="Remove rule"
+            >
+              Remove
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 dark:text-gray-400">contains</span>
             <input
               type="text"
@@ -79,15 +88,6 @@ export function CsvTransferRules({ rules, onChange, accounts }: CsvTransferRules
                 </option>
               ))}
             </select>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={() => removeRule(index)}
-              className="text-red-500 hover:text-red-700 text-sm px-1"
-              title="Remove rule"
-            >
-              Remove
-            </button>
           </div>
         </div>
       ))}
