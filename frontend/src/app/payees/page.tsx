@@ -47,8 +47,8 @@ function PayeesContent() {
   const [statusFilter, setStatusFilter] = useState<PayeeStatusFilter>('active');
   const [currentPage, setCurrentPage] = useState(1);
   const [listDensity, setListDensity] = useLocalStorage<DensityLevel>('monize-payees-density', 'normal');
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortField, setSortField] = useLocalStorage<SortField>('monize-payees-sort-field', 'name');
+  const [sortDirection, setSortDirection] = useLocalStorage<SortDirection>('monize-payees-sort-dir', 'asc');
   const [mergePayee, setMergePayee] = useState<Payee | null>(null);
   const { showForm, editingItem, openCreate, openEdit, close, isEditing, modalProps, setFormDirty, unsavedChangesDialog, formSubmitRef } = useFormModal<Payee>();
 
