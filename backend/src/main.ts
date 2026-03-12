@@ -44,11 +44,17 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // Security middleware
+  const disableHttpsHeaders =
+    process.env.DISABLE_HTTPS_HEADERS === "true";
   app.use(
     helmet({
       frameguard: { action: "deny" },
-      hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
-      crossOriginOpenerPolicy: { policy: "same-origin" },
+      hsts: disableHttpsHeaders
+        ? false
+        : { maxAge: 63072000, includeSubDomains: true, preload: true },
+      crossOriginOpenerPolicy: disableHttpsHeaders
+        ? false
+        : { policy: "same-origin" },
       crossOriginResourcePolicy: { policy: "same-origin" },
       contentSecurityPolicy: {
         directives: {
