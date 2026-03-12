@@ -26,6 +26,7 @@ function buildFilterParams(params?: {
   categoryIds?: string[];
   payeeId?: string;
   payeeIds?: string[];
+  tagIds?: string[];
 }): Record<string, string | undefined> {
   const result: Record<string, string | undefined> = {};
 
@@ -45,6 +46,10 @@ function buildFilterParams(params?: {
     result.payeeIds = params.payeeIds.join(',');
   } else if (params?.payeeId) {
     result.payeeId = params.payeeId;
+  }
+
+  if (params?.tagIds && params.tagIds.length > 0) {
+    result.tagIds = params.tagIds.join(',');
   }
 
   return result;

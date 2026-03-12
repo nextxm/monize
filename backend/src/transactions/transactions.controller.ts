@@ -137,6 +137,11 @@ export class TransactionsController {
     description: "Filter by maximum amount (inclusive)",
   })
   @ApiQuery({
+    name: "tagIds",
+    required: false,
+    description: "Filter by tag IDs (comma-separated)",
+  })
+  @ApiQuery({
     name: "targetTransactionId",
     required: false,
     description:
@@ -165,6 +170,7 @@ export class TransactionsController {
     @Query("targetTransactionId") targetTransactionId?: string,
     @Query("amountFrom") amountFrom?: string,
     @Query("amountTo") amountTo?: string,
+    @Query("tagIds") tagIdsParam?: string,
   ) {
     // Validate pagination parameters
     if (page !== undefined) {
@@ -220,6 +226,7 @@ export class TransactionsController {
       targetTransactionId,
       parsedAmountFrom,
       parsedAmountTo,
+      parseUuids(tagIdsParam),
     );
   }
 
