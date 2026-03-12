@@ -59,7 +59,7 @@ export function TagForm({ tag, onSubmit, onCancel, onDirtyChange, submitRef }: T
       : {
           name: '',
           color: '',
-          icon: '',
+          icon: 'chart-bar',
         },
   });
 

@@ -8,6 +8,10 @@ import { createPortal } from 'react-dom';
 // Parent modals must skip that popstate to avoid cascading closes.
 let pendingProgrammaticPops = 0;
 
+// Tracks how many modals currently need body scroll locked.
+// Only the last modal to close should restore body overflow.
+let bodyOverflowLockCount = 0;
+
 const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
@@ -145,13 +149,20 @@ export function Modal({
     };
   }, []);
 
-  // Prevent body scroll when modal is open
+  // Prevent body scroll when modal is open (ref-counted for stacked modals)
   useEffect(() => {
     if (isOpen) {
+      bodyOverflowLockCount++;
       document.body.style.overflow = 'hidden';
     }
     return () => {
-      document.body.style.overflow = '';
+      if (isOpen) {
+        bodyOverflowLockCount--;
+        if (bodyOverflowLockCount <= 0) {
+          bodyOverflowLockCount = 0;
+          document.body.style.overflow = '';
+        }
+      }
     };
   }, [isOpen]);
 
@@ -245,6 +256,7 @@ export function Modal({
         tabIndex={-1}
         className={`bg-white dark:bg-gray-800 rounded-lg shadow-xl dark:shadow-gray-700/50 ${maxWidthClasses[maxWidth]} w-full max-h-[90vh] ${allowOverflow ? 'overflow-visible' : 'overflow-y-auto'} outline-none ${className}`}
         onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => e.stopPropagation()}
       >
         {children}
       </div>
