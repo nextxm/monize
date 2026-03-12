@@ -23,11 +23,6 @@ afterEach(() => {
   document.body.style.overflow = '';
 });
 
-// Helper: properly close a modal before unmounting to avoid state leaks
-function closeModal(rerender: any, children: any, props: any = {}) {
-  rerender(<Modal isOpen={false} {...props}>{children}</Modal>);
-}
-
 describe('Modal', () => {
   it('renders nothing when not open', () => {
     const { container } = render(<Modal isOpen={false}>Content</Modal>);
@@ -213,7 +208,7 @@ describe('Modal', () => {
 
     it('closes modal on popstate (browser back button)', () => {
       const onClose = vi.fn();
-      const { rerender } = render(<Modal isOpen={true} pushHistory onClose={onClose}>Content</Modal>);
+      render(<Modal isOpen={true} pushHistory onClose={onClose}>Content</Modal>);
       expect(pushStateSpy).toHaveBeenCalledTimes(1);
 
       act(() => {

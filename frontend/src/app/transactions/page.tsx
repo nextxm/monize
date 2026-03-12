@@ -355,7 +355,7 @@ function TransactionsContent() {
     if (filters.filterAmountFrom) f.amountFrom = parseFloat(filters.filterAmountFrom);
     if (filters.filterAmountTo) f.amountTo = parseFloat(filters.filterAmountTo);
     return f;
-  }, [filters.filterAccountIds, filters.filterAccountStatus, filters.filteredAccounts, filters.filterCategoryIds, filters.filterPayeeIds, filters.filterStartDate, filters.filterEndDate, filters.filterSearch, filters.filterAmountFrom, filters.filterAmountTo]);
+  }, [filters.filterAccountIds, filters.filterAccountStatus, filters.filteredAccounts, filters.filterCategoryIds, filters.filterPayeeIds, filters.filterTagIds, filters.filterStartDate, filters.filterEndDate, filters.filterSearch, filters.filterAmountFrom, filters.filterAmountTo]);
 
   // Derive chart currency and aggregate per-account daily balances
   const { chartBalances, chartCurrency } = useMemo(() => {

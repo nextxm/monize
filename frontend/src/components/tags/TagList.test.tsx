@@ -24,12 +24,12 @@ const mockTransactionCounts: Record<string, number> = {
 };
 
 describe('TagList', () => {
-  let onEdit: ReturnType<typeof vi.fn>;
-  let onDelete: ReturnType<typeof vi.fn>;
+  let onEdit: (tag: Tag) => void;
+  let onDelete: (tag: Tag) => void;
 
   beforeEach(() => {
-    onEdit = vi.fn();
-    onDelete = vi.fn();
+    onEdit = vi.fn() as (tag: Tag) => void;
+    onDelete = vi.fn() as (tag: Tag) => void;
   });
 
   it('renders tags in a table with Name, Icon, Transactions, Actions columns', () => {

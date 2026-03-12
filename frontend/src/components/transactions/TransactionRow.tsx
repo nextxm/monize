@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, type JSX, type ReactNode } from 'react';
+import { memo, type JSX } from 'react';
 import { getIconComponent } from '@/components/ui/IconPicker';
 import { Transaction, TransactionStatus } from '@/types/transaction';
 import { CategoryBudgetStatus } from '@/types/budget';

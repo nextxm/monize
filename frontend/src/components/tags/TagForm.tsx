@@ -6,7 +6,6 @@ import '@/lib/zodConfig';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@/components/ui/Input';
-import { ColorPicker } from '@/components/ui/ColorPicker';
 import { IconPicker } from '@/components/ui/IconPicker';
 import { useFormSubmitRef } from '@/hooks/useFormSubmitRef';
 import { useFormDirtyNotify } from '@/hooks/useFormDirtyNotify';

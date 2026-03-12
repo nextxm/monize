@@ -130,7 +130,7 @@ function TagsContent() {
       setSortField(field);
       setSortDirection(field === 'createdAt' ? 'desc' : 'asc');
     }
-  }, [sortField]);
+  }, [sortField, setSortField, setSortDirection]);
 
   const handleTagClick = useCallback((tag: Tag) => {
     router.push(`/transactions?tagIds=${tag.id}`);
