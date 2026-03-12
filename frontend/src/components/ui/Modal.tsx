@@ -12,6 +12,17 @@ let pendingProgrammaticPops = 0;
 // Only the last modal to close should restore body overflow.
 let bodyOverflowLockCount = 0;
 
+// Global stack of modal IDs that have pushed history entries.
+// Only the topmost (last) modal should handle a popstate event.
+// This is needed because createPortal renders child modals as siblings at document.body,
+// so DOM-based nesting detection (querySelector) doesn't work.
+const openModalStack: number[] = [];
+let nextModalId = 0;
+
+// Flag to prevent multiple modals from handling the same popstate event.
+// Reset via microtask after each popstate dispatch cycle.
+let popstateConsumed = false;
+
 const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
@@ -64,6 +75,8 @@ export function Modal({
   const historyPushedRef = useRef(false);
   // Track whether the close was triggered by the browser back button (popstate)
   const closedByPopstateRef = useRef(false);
+  // Unique ID for this modal instance in the global stack
+  const modalIdRef = useRef(-1);
   // Focus trap refs
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -88,6 +101,9 @@ export function Modal({
       closedByPopstateRef.current = true;
       // History entry already consumed by the browser
       historyPushedRef.current = false;
+      // Remove from global stack
+      const idx = openModalStack.indexOf(modalIdRef.current);
+      if (idx !== -1) openModalStack.splice(idx, 1);
     }
     onClose();
   }, [onClose, onBeforeClose, pushHistory]);
@@ -100,12 +116,18 @@ export function Modal({
       window.history.pushState({ ...window.history.state, modal: true }, '');
       historyPushedRef.current = true;
       closedByPopstateRef.current = false;
+      // Register on global stack so only the topmost modal handles popstate
+      modalIdRef.current = nextModalId++;
+      openModalStack.push(modalIdRef.current);
     }
 
     if (!isOpen && historyPushedRef.current) {
       // Modal closed programmatically (save/cancel) — pop our history entry.
       // Signal other modals to ignore the resulting popstate event.
       historyPushedRef.current = false;
+      // Remove from global stack
+      const idx = openModalStack.indexOf(modalIdRef.current);
+      if (idx !== -1) openModalStack.splice(idx, 1);
       pendingProgrammaticPops++;
       window.history.back();
     }
@@ -125,11 +147,20 @@ export function Modal({
         pendingProgrammaticPops--;
         return;
       }
+      // Another modal already handled this popstate in the same event dispatch cycle
+      if (popstateConsumed) return;
       if (historyPushedRef.current) {
-        // Skip if a nested child modal is open (it should handle this popstate)
-        if (modalRef.current?.querySelector('[role="dialog"]')) {
+        // Only the topmost modal on the stack should handle popstate.
+        // This prevents parent modals from closing when a child modal's
+        // back button is pressed (child modals render via portal as siblings,
+        // not nested in DOM).
+        const topModalId = openModalStack[openModalStack.length - 1];
+        if (topModalId !== modalIdRef.current) {
           return;
         }
+        // Mark as consumed so other modal handlers in this tick skip it
+        popstateConsumed = true;
+        queueMicrotask(() => { popstateConsumed = false; });
         attemptClose('popstate');
       }
     };
@@ -143,6 +174,8 @@ export function Modal({
     return () => {
       if (historyPushedRef.current) {
         historyPushedRef.current = false;
+        const idx = openModalStack.indexOf(modalIdRef.current);
+        if (idx !== -1) openModalStack.splice(idx, 1);
         pendingProgrammaticPops++;
         window.history.back();
       }
