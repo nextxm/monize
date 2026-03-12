@@ -77,7 +77,7 @@ export function Modal({
       if (result === false) {
         // Close was prevented — if this was from back button, re-push history
         if (source === 'popstate' && pushHistory) {
-          window.history.pushState({ modal: true }, '');
+          window.history.pushState({ ...window.history.state, modal: true }, '');
           // historyPushedRef stays true
         }
         return;
@@ -97,7 +97,7 @@ export function Modal({
     if (!pushHistory) return;
 
     if (isOpen && !historyPushedRef.current) {
-      window.history.pushState({ modal: true }, '');
+      window.history.pushState({ ...window.history.state, modal: true }, '');
       historyPushedRef.current = true;
       closedByPopstateRef.current = false;
     }
