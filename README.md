@@ -25,6 +25,7 @@
 
 A comprehensive personal finance management application built with NestJS and Next.js. Designed as a replacement for Microsoft Money. 100% built using farm-fresh, free-range Claude Code.
 
+**[Wiki](https://github.com/kenlasko/monize/wiki)**
 **[Live Demo](https://monize-demo.ucdialplans.com)**
 
 ## Why This Exists?
