@@ -30,6 +30,10 @@ export interface CsvColumnMappingConfig {
   reverseSign?: boolean;
   hasHeader: boolean;
   delimiter: string;
+  amountTypeColumn?: number;
+  expenseValues?: string[];
+  transferOutValues?: string[];
+  transferInValues?: string[];
 }
 
 export interface CsvTransferRule {
@@ -592,16 +596,51 @@ export function parseCsv(
     let isTransfer = false;
     let transferAccount = "";
 
-    for (const rule of rules) {
-      const fieldValue = rule.type === "payee" ? payee : category;
-      if (
-        fieldValue &&
-        fieldValue.toLowerCase().includes(rule.pattern.toLowerCase())
-      ) {
-        isTransfer = true;
-        transferAccount = rule.accountName;
-        category = "";
-        break;
+    // Amount type column: determine sign and detect transfers from a type indicator column
+    if (config.amountTypeColumn !== undefined) {
+      const typeValue = getField(row, config.amountTypeColumn)
+        .trim()
+        .toLowerCase();
+      if (typeValue) {
+        const expenseVals = (config.expenseValues || []).map((v) =>
+          v.trim().toLowerCase(),
+        );
+        const transferOutVals = (config.transferOutValues || []).map((v) =>
+          v.trim().toLowerCase(),
+        );
+        const transferInVals = (config.transferInValues || []).map((v) =>
+          v.trim().toLowerCase(),
+        );
+
+        if (transferOutVals.includes(typeValue) && categoryPart) {
+          amount = -Math.abs(amount);
+          isTransfer = true;
+          transferAccount = categoryPart;
+          category = "";
+        } else if (transferInVals.includes(typeValue) && categoryPart) {
+          amount = Math.abs(amount);
+          isTransfer = true;
+          transferAccount = categoryPart;
+          category = "";
+        } else if (expenseVals.includes(typeValue)) {
+          amount = -Math.abs(amount);
+        }
+      }
+    }
+
+    // Transfer rules (skipped if transfer already detected via amount type column)
+    if (!isTransfer) {
+      for (const rule of rules) {
+        const fieldValue = rule.type === "payee" ? payee : category;
+        if (
+          fieldValue &&
+          fieldValue.toLowerCase().includes(rule.pattern.toLowerCase())
+        ) {
+          isTransfer = true;
+          transferAccount = rule.accountName;
+          category = "";
+          break;
+        }
       }
     }
 

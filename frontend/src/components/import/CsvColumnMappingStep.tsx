@@ -321,6 +321,90 @@ export function CsvColumnMappingStep({
             </div>
           )}
 
+          {/* Transaction type column (sign indicator) */}
+          <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Transaction type column
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Optional column that indicates income, expense, or transfer per row.
+              </p>
+              <select
+                value={columnMapping.amountTypeColumn !== undefined ? String(columnMapping.amountTypeColumn) : ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    const { amountTypeColumn: _, expenseValues: _e, transferOutValues: _to, transferInValues: _ti, ...rest } = columnMapping;
+                    onColumnMappingChange(rest as typeof columnMapping);
+                  } else {
+                    onColumnMappingChange({ ...columnMapping, amountTypeColumn: parseInt(val, 10) });
+                  }
+                }}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              >
+                {columnOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            {columnMapping.amountTypeColumn !== undefined && (
+              <>
+                {(() => {
+                  const uniqueValues = [...new Set(
+                    sampleRows.map((row) => row[columnMapping.amountTypeColumn!] || '').filter(Boolean)
+                  )];
+                  return uniqueValues.length > 0 ? (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Values found: {uniqueValues.join(', ')}
+                    </p>
+                  ) : null;
+                })()}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Expense keywords</label>
+                    <input
+                      type="text"
+                      value={(columnMapping.expenseValues || []).join(', ')}
+                      onChange={(e) => {
+                        const values = e.target.value.split(',').map((v) => v.trim()).filter(Boolean);
+                        onColumnMappingChange({ ...columnMapping, expenseValues: values.length > 0 ? values : undefined });
+                      }}
+                      placeholder="e.g. Expense, Debit"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Transfer-out keywords</label>
+                    <input
+                      type="text"
+                      value={(columnMapping.transferOutValues || []).join(', ')}
+                      onChange={(e) => {
+                        const values = e.target.value.split(',').map((v) => v.trim()).filter(Boolean);
+                        onColumnMappingChange({ ...columnMapping, transferOutValues: values.length > 0 ? values : undefined });
+                      }}
+                      placeholder="e.g. Transfer-Out"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Transfer-in keywords</label>
+                    <input
+                      type="text"
+                      value={(columnMapping.transferInValues || []).join(', ')}
+                      onChange={(e) => {
+                        const values = e.target.value.split(',').map((v) => v.trim()).filter(Boolean);
+                        onColumnMappingChange({ ...columnMapping, transferInValues: values.length > 0 ? values : undefined });
+                      }}
+                      placeholder="e.g. Transfer-In"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Payee</label>
             <select

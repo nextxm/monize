@@ -314,4 +314,124 @@ describe('CsvColumnMappingStep', () => {
 
     expect(props.setStep).toHaveBeenCalledWith('upload');
   });
+
+  describe('transaction type column', () => {
+    it('renders Transaction type column dropdown', () => {
+      renderStep();
+
+      expect(screen.getByText('Transaction type column')).toBeInTheDocument();
+    });
+
+    it('does not show keyword inputs when no column is selected', () => {
+      renderStep();
+
+      expect(screen.queryByText('Expense keywords')).not.toBeInTheDocument();
+      expect(screen.queryByText('Transfer-out keywords')).not.toBeInTheDocument();
+      expect(screen.queryByText('Transfer-in keywords')).not.toBeInTheDocument();
+    });
+
+    it('shows keyword inputs when amountTypeColumn is set in mapping', () => {
+      renderStep({
+        columnMapping: { ...defaultMapping(), amount: 1, amountTypeColumn: 2 },
+      });
+
+      expect(screen.getByText('Expense keywords')).toBeInTheDocument();
+      expect(screen.getByText('Transfer-out keywords')).toBeInTheDocument();
+      expect(screen.getByText('Transfer-in keywords')).toBeInTheDocument();
+    });
+
+    it('calls onColumnMappingChange with amountTypeColumn when column selected', () => {
+      const props = renderStep({
+        headers: ['Date', 'Amount', 'Payee', 'Type'],
+        sampleRows: [['2024-01-01', '100.00', 'Store', 'Expense']],
+        columnMapping: { ...defaultMapping(), amount: 1 },
+      });
+
+      // Find the transaction type column select (the one after "Transaction type column" label)
+      const selects = screen.getAllByRole('combobox');
+      // The transaction type column select should have "Not mapped" as default
+      const typeColumnSelect = selects.find(
+        (s) => (s as HTMLSelectElement).value === '',
+      );
+      expect(typeColumnSelect).toBeDefined();
+
+      fireEvent.change(typeColumnSelect!, { target: { value: '3' } });
+
+      expect(props.onColumnMappingChange).toHaveBeenCalledWith(
+        expect.objectContaining({ amountTypeColumn: 3 }),
+      );
+    });
+
+    it('shows unique values found in sample data when column is selected', () => {
+      renderStep({
+        headers: ['Date', 'Amount', 'Payee', 'Type'],
+        sampleRows: [
+          ['2024-01-01', '100.00', 'Store', 'Expense'],
+          ['2024-01-02', '50.00', 'Work', 'Income'],
+          ['2024-01-03', '200.00', 'ATM', 'Transfer-Out'],
+        ],
+        columnMapping: { ...defaultMapping(), amount: 1, amountTypeColumn: 3 },
+      });
+
+      expect(screen.getByText('Values found: Expense, Income, Transfer-Out')).toBeInTheDocument();
+    });
+
+    it('displays existing expenseValues in keyword input', () => {
+      renderStep({
+        columnMapping: {
+          ...defaultMapping(),
+          amount: 1,
+          amountTypeColumn: 2,
+          expenseValues: ['Expense', 'Debit'],
+        },
+      });
+
+      const expenseInput = screen.getByPlaceholderText('e.g. Expense, Debit');
+      expect((expenseInput as HTMLInputElement).value).toBe('Expense, Debit');
+    });
+
+    it('calls onColumnMappingChange with parsed expenseValues when keywords entered', () => {
+      const props = renderStep({
+        columnMapping: { ...defaultMapping(), amount: 1, amountTypeColumn: 2 },
+      });
+
+      const expenseInput = screen.getByPlaceholderText('e.g. Expense, Debit');
+      fireEvent.change(expenseInput, { target: { value: 'Expense, Withdrawal' } });
+
+      expect(props.onColumnMappingChange).toHaveBeenCalledWith(
+        expect.objectContaining({ expenseValues: ['Expense', 'Withdrawal'] }),
+      );
+    });
+
+    it('clears amountType fields when column is deselected', () => {
+      const onColumnMappingChange = vi.fn();
+      renderStep({
+        columnMapping: {
+          ...defaultMapping(),
+          amount: 1,
+          amountTypeColumn: 2,
+          expenseValues: ['Expense'],
+          transferOutValues: ['Transfer-Out'],
+        },
+        onColumnMappingChange,
+      });
+
+      // The transaction type column select is inside the section with "Transaction type column" label
+      // It is the select whose parent section also contains the "Expense keywords" label
+      const expenseLabel = screen.getByText('Expense keywords');
+      const section = expenseLabel.closest('.p-3');
+      const typeColumnSelect = section!.querySelector('select');
+      expect(typeColumnSelect).toBeDefined();
+      expect((typeColumnSelect as HTMLSelectElement).value).toBe('2');
+
+      fireEvent.change(typeColumnSelect!, { target: { value: '' } });
+
+      const calls = onColumnMappingChange.mock.calls;
+      const callArg = calls[calls.length - 1][0];
+      expect(callArg.amountTypeColumn).toBeUndefined();
+      expect(callArg.expenseValues).toBeUndefined();
+      expect(callArg.transferOutValues).toBeUndefined();
+      expect(callArg.transferInValues).toBeUndefined();
+    });
+  });
 });

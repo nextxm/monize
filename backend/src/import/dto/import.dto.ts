@@ -453,6 +453,49 @@ export class CsvColumnMappingConfigDto {
   @IsBoolean()
   reverseSign?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      "Column index for transaction type indicator (income/expense/transfer)",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  amountTypeColumn?: number;
+
+  @ApiPropertyOptional({
+    description:
+      "Values indicating expense (negate amount), case-insensitive match",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  @ArrayMaxSize(20)
+  expenseValues?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      "Values indicating transfer out (negate + mark as transfer), case-insensitive match",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  @ArrayMaxSize(20)
+  transferOutValues?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      "Values indicating transfer in (positive + mark as transfer), case-insensitive match",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  @ArrayMaxSize(20)
+  transferInValues?: string[];
+
   @ApiProperty({ description: "Whether the CSV has a header row" })
   @IsBoolean()
   hasHeader: boolean;

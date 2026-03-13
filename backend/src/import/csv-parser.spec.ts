@@ -850,5 +850,243 @@ describe("CSV Parser", () => {
         ]);
       });
     });
+
+    describe("amount type column", () => {
+      const amountTypeCsv = [
+        "Date,Account,Category,Subcategory,Note,USD,Income/Expense,Description",
+        "03/09/2026,Chase,Bills,Cable,Verizon,189.17,Expense,",
+        "03/06/2026,Chase,Salary,,My Company,650.23,Income,",
+        "03/05/2026,Chase,Leisure,,YouTube,13.99,Expense,Premium",
+        "09/23/2024,Chase,Cash,,ATM,200,Transfer-Out,",
+        "09/04/2024,Chase,Freedom Unlimited,,Payment,2693.99,Transfer-Out,",
+      ].join("\n");
+
+      function amountTypeConfig(
+        overrides?: Partial<CsvColumnMappingConfig>,
+      ): CsvColumnMappingConfig {
+        return {
+          date: 0,
+          amount: 5,
+          payee: 4,
+          category: 2,
+          subcategory: 3,
+          memo: 7,
+          dateFormat: "MM/DD/YYYY",
+          hasHeader: true,
+          delimiter: ",",
+          amountTypeColumn: 6,
+          expenseValues: ["Expense"],
+          transferOutValues: ["Transfer-Out"],
+          ...overrides,
+        };
+      }
+
+      it("negates amount for expense values", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,50.00,Expense\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(-50);
+      });
+
+      it("leaves amount unchanged for income values (not in any list)", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,650.23,Income\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(650.23);
+      });
+
+      it("detects transfer-out and uses category as transfer account", () => {
+        const csv =
+          "Date,Amount,Payee,Category,Type\n01/15/2026,500.00,ATM,Cash,Transfer-Out\n";
+        const config = baseConfig({
+          category: 3,
+          amountTypeColumn: 4,
+          transferOutValues: ["Transfer-Out"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].isTransfer).toBe(true);
+        expect(result.transactions[0].transferAccount).toBe("Cash");
+        expect(result.transactions[0].amount).toBe(-500);
+        expect(result.transactions[0].category).toBe("");
+      });
+
+      it("detects transfer-in and keeps amount positive", () => {
+        const csv =
+          "Date,Amount,Payee,Category,Type\n01/15/2026,500.00,ATM,Savings,Transfer-In\n";
+        const config = baseConfig({
+          category: 3,
+          amountTypeColumn: 4,
+          transferInValues: ["Transfer-In"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].isTransfer).toBe(true);
+        expect(result.transactions[0].transferAccount).toBe("Savings");
+        expect(result.transactions[0].amount).toBe(500);
+        expect(result.transactions[0].category).toBe("");
+      });
+
+      it("performs case-insensitive matching", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,50.00,expense\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(-50);
+      });
+
+      it("supports multiple expense keywords", () => {
+        const csv =
+          "Date,Amount,Type\n01/15/2026,50.00,Expense\n01/16/2026,30.00,Debit\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          expenseValues: ["Expense", "Debit"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(-50);
+        expect(result.transactions[1].amount).toBe(-30);
+      });
+
+      it("skips transfer detection when category is not mapped", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,200.00,Transfer-Out\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          transferOutValues: ["Transfer-Out"],
+        });
+        const result = parseCsv(csv, config);
+
+        // No category mapped, so transfer detection via amountType is skipped
+        expect(result.transactions[0].isTransfer).toBe(false);
+        // Amount is unchanged since transfer-out didn't fire
+        expect(result.transactions[0].amount).toBe(200);
+      });
+
+      it("prevents transfer rules from running when amountType detected transfer", () => {
+        const csv =
+          "Date,Amount,Payee,Category,Type\n01/15/2026,500.00,Payment,Freedom Unlimited,Transfer-Out\n";
+        const config = baseConfig({
+          category: 3,
+          amountTypeColumn: 4,
+          transferOutValues: ["Transfer-Out"],
+        });
+        const rules: CsvTransferRule[] = [
+          {
+            type: "payee",
+            pattern: "Payment",
+            accountName: "Override Account",
+          },
+        ];
+        const result = parseCsv(csv, config, rules);
+
+        // amountType transfer takes precedence, transfer rule is skipped
+        expect(result.transactions[0].isTransfer).toBe(true);
+        expect(result.transactions[0].transferAccount).toBe(
+          "Freedom Unlimited",
+        );
+      });
+
+      it("collects transfer accounts from amountType detection", () => {
+        const csv =
+          "Date,Amount,Payee,Category,Type\n01/15/2026,200,ATM,Cash,Transfer-Out\n01/16/2026,500,Payment,Freedom Unlimited,Transfer-Out\n";
+        const config = baseConfig({
+          category: 3,
+          amountTypeColumn: 4,
+          transferOutValues: ["Transfer-Out"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transferAccounts).toEqual([
+          "Cash",
+          "Freedom Unlimited",
+        ]);
+      });
+
+      it("forces expense amount negative even if already negative", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,-50.00,Expense\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(-50);
+      });
+
+      it("works with reverseSign (amountType applied after reverseSign)", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,50.00,Expense\n";
+        const config = baseConfig({
+          reverseSign: true,
+          amountTypeColumn: 2,
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        // reverseSign makes 50 -> -50, then expense forces -Math.abs(-50) = -50
+        expect(result.transactions[0].amount).toBe(-50);
+      });
+
+      it("handles the full user CSV scenario correctly", () => {
+        const result = parseCsv(amountTypeCsv, amountTypeConfig());
+
+        // Expense: negated
+        expect(result.transactions[0].amount).toBe(-189.17);
+        expect(result.transactions[0].isTransfer).toBe(false);
+        expect(result.transactions[0].category).toBe("Bills:Cable");
+
+        // Income: unchanged
+        expect(result.transactions[1].amount).toBe(650.23);
+        expect(result.transactions[1].isTransfer).toBe(false);
+        expect(result.transactions[1].category).toBe("Salary");
+
+        // Expense: negated
+        expect(result.transactions[2].amount).toBe(-13.99);
+        expect(result.transactions[2].isTransfer).toBe(false);
+
+        // Transfer-Out: negated + transfer detected
+        expect(result.transactions[3].amount).toBe(-200);
+        expect(result.transactions[3].isTransfer).toBe(true);
+        expect(result.transactions[3].transferAccount).toBe("Cash");
+        expect(result.transactions[3].category).toBe("");
+
+        // Transfer-Out: negated + transfer detected
+        expect(result.transactions[4].amount).toBe(-2693.99);
+        expect(result.transactions[4].isTransfer).toBe(true);
+        expect(result.transactions[4].transferAccount).toBe(
+          "Freedom Unlimited",
+        );
+
+        // Transfer accounts collected
+        expect(result.transferAccounts).toEqual([
+          "Cash",
+          "Freedom Unlimited",
+        ]);
+
+        // Categories collected (no transfer categories)
+        expect(result.categories).toContain("Bills:Cable");
+        expect(result.categories).toContain("Salary");
+        expect(result.categories).toContain("Leisure");
+      });
+
+      it("does nothing when amountTypeColumn is not configured", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,50.00,Expense\n";
+        const config = baseConfig();
+        const result = parseCsv(csv, config);
+
+        // Without amountTypeColumn, "Expense" text is ignored
+        expect(result.transactions[0].amount).toBe(50);
+      });
+    });
   });
 });

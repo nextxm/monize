@@ -137,6 +137,10 @@ export interface CsvColumnMappingConfig {
   reverseSign?: boolean;
   hasHeader: boolean;
   delimiter: string;
+  amountTypeColumn?: number;
+  expenseValues?: string[];
+  transferOutValues?: string[];
+  transferInValues?: string[];
 }
 
 export interface CsvTransferRule {
