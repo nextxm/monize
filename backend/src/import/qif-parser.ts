@@ -156,8 +156,15 @@ export function parseQif(
         default: {
           // Known non-transaction sections: skip all lines until next transaction type
           const nonTransactionSections = [
-            "cat", "class", "tag", "memorized", "security",
-            "prices", "budget", "invitem", "template",
+            "cat",
+            "class",
+            "tag",
+            "memorized",
+            "security",
+            "prices",
+            "budget",
+            "invitem",
+            "template",
           ];
           if (nonTransactionSections.includes(type.toLowerCase())) {
             skippingSection = true;

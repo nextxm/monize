@@ -251,7 +251,9 @@ export class ParsedQifResponseDto {
   @ApiProperty()
   accountType: string;
 
-  @ApiPropertyOptional({ description: "Account name from QIF file, if present" })
+  @ApiPropertyOptional({
+    description: "Account name from QIF file, if present",
+  })
   accountName: string;
 
   @ApiProperty()
