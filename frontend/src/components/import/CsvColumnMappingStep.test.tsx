@@ -325,6 +325,7 @@ describe('CsvColumnMappingStep', () => {
     it('does not show keyword inputs when no column is selected', () => {
       renderStep();
 
+      expect(screen.queryByText('Income keywords')).not.toBeInTheDocument();
       expect(screen.queryByText('Expense keywords')).not.toBeInTheDocument();
       expect(screen.queryByText('Transfer-out keywords')).not.toBeInTheDocument();
       expect(screen.queryByText('Transfer-in keywords')).not.toBeInTheDocument();
@@ -335,6 +336,7 @@ describe('CsvColumnMappingStep', () => {
         columnMapping: { ...defaultMapping(), amount: 1, amountTypeColumn: 2 },
       });
 
+      expect(screen.getByText('Income keywords')).toBeInTheDocument();
       expect(screen.getByText('Expense keywords')).toBeInTheDocument();
       expect(screen.getByText('Transfer-out keywords')).toBeInTheDocument();
       expect(screen.getByText('Transfer-in keywords')).toBeInTheDocument();
@@ -429,6 +431,7 @@ describe('CsvColumnMappingStep', () => {
       const calls = onColumnMappingChange.mock.calls;
       const callArg = calls[calls.length - 1][0];
       expect(callArg.amountTypeColumn).toBeUndefined();
+      expect(callArg.incomeValues).toBeUndefined();
       expect(callArg.expenseValues).toBeUndefined();
       expect(callArg.transferOutValues).toBeUndefined();
       expect(callArg.transferInValues).toBeUndefined();

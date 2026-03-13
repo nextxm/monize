@@ -875,6 +875,7 @@ describe("CSV Parser", () => {
           hasHeader: true,
           delimiter: ",",
           amountTypeColumn: 6,
+          incomeValues: ["Income"],
           expenseValues: ["Expense"],
           transferOutValues: ["Transfer-Out"],
           ...overrides,
@@ -892,8 +893,8 @@ describe("CSV Parser", () => {
         expect(result.transactions[0].amount).toBe(-50);
       });
 
-      it("leaves amount unchanged for income values (not in any list)", () => {
-        const csv = "Date,Amount,Type\n01/15/2026,650.23,Income\n";
+      it("leaves amount unchanged for unrecognized values (not in any list)", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,650.23,Unknown\n";
         const config = baseConfig({
           amountTypeColumn: 2,
           expenseValues: ["Expense"],
@@ -901,6 +902,43 @@ describe("CSV Parser", () => {
         const result = parseCsv(csv, config);
 
         expect(result.transactions[0].amount).toBe(650.23);
+      });
+
+      it("forces amount positive for income values", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,650.23,Income\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          incomeValues: ["Income"],
+          expenseValues: ["Expense"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(650.23);
+      });
+
+      it("forces negative amount positive when income keyword matches", () => {
+        const csv = "Date,Amount,Type\n01/15/2026,-650.23,Income\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          incomeValues: ["Income"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(650.23);
+      });
+
+      it("supports multiple income keywords", () => {
+        const csv =
+          "Date,Amount,Type\n01/15/2026,100.00,Income\n01/16/2026,200.00,Salary\n01/17/2026,300.00,Refund\n";
+        const config = baseConfig({
+          amountTypeColumn: 2,
+          incomeValues: ["Income", "Salary", "Refund"],
+        });
+        const result = parseCsv(csv, config);
+
+        expect(result.transactions[0].amount).toBe(100);
+        expect(result.transactions[1].amount).toBe(200);
+        expect(result.transactions[2].amount).toBe(300);
       });
 
       it("detects transfer-out and uses category as transfer account", () => {

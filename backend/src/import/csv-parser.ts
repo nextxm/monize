@@ -31,6 +31,7 @@ export interface CsvColumnMappingConfig {
   hasHeader: boolean;
   delimiter: string;
   amountTypeColumn?: number;
+  incomeValues?: string[];
   expenseValues?: string[];
   transferOutValues?: string[];
   transferInValues?: string[];
@@ -603,6 +604,9 @@ export function parseCsv(
         .trim()
         .toLowerCase();
       if (typeValue) {
+        const incomeVals = (config.incomeValues || []).map((v) =>
+          v.trim().toLowerCase(),
+        );
         const expenseVals = (config.expenseValues || []).map((v) =>
           v.trim().toLowerCase(),
         );
@@ -634,6 +638,8 @@ export function parseCsv(
           category = "";
         } else if (expenseVals.includes(typeValue)) {
           amount = -Math.abs(amount);
+        } else if (incomeVals.includes(typeValue)) {
+          amount = Math.abs(amount);
         }
       }
     }

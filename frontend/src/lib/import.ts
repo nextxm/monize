@@ -138,6 +138,7 @@ export interface CsvColumnMappingConfig {
   hasHeader: boolean;
   delimiter: string;
   amountTypeColumn?: number;
+  incomeValues?: string[];
   expenseValues?: string[];
   transferOutValues?: string[];
   transferInValues?: string[];

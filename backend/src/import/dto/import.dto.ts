@@ -465,6 +465,17 @@ export class CsvColumnMappingConfigDto {
 
   @ApiPropertyOptional({
     description:
+      "Values indicating income (force amount positive), case-insensitive match",
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  @ArrayMaxSize(20)
+  incomeValues?: string[];
+
+  @ApiPropertyOptional({
+    description:
       "Values indicating expense (negate amount), case-insensitive match",
   })
   @IsOptional()

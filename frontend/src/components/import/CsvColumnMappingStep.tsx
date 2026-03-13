@@ -335,7 +335,7 @@ export function CsvColumnMappingStep({
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val === '') {
-                    const { amountTypeColumn: _, expenseValues: _e, transferOutValues: _to, transferInValues: _ti, transferAccountColumn: _ta, ...rest } = columnMapping;
+                    const { amountTypeColumn: _, incomeValues: _i, expenseValues: _e, transferOutValues: _to, transferInValues: _ti, transferAccountColumn: _ta, ...rest } = columnMapping;
                     onColumnMappingChange(rest as typeof columnMapping);
                   } else {
                     onColumnMappingChange({ ...columnMapping, amountTypeColumn: parseInt(val, 10) });
@@ -360,7 +360,20 @@ export function CsvColumnMappingStep({
                     </p>
                   ) : null;
                 })()}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Income keywords</label>
+                    <input
+                      type="text"
+                      value={(columnMapping.incomeValues || []).join(', ')}
+                      onChange={(e) => {
+                        const values = e.target.value.split(',').map((v) => v.trim()).filter(Boolean);
+                        onColumnMappingChange({ ...columnMapping, incomeValues: values.length > 0 ? values : undefined });
+                      }}
+                      placeholder="e.g. Income, Deposit"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Expense keywords</label>
                     <input
