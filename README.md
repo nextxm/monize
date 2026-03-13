@@ -78,15 +78,19 @@ I could easily add import capabilities for other filetypes, but I would need exa
 ### Transaction Management
 - Full transaction tracking with categories and payees
 - Split transaction support for complex transactions
+- Transaction tags for flexible cross-category labelling
 - Transaction reconciliation and clearing
-- Payees with auto-categorization rules
+- Bulk update and bulk delete operations with filter-based selection
+- Payees with auto-categorization rules, aliases with wildcard patterns, and merge capability
 - Multi-currency transactions with automatic exchange rate tracking
-- QIF file import support
+- Import from CSV, OFX/QFX, and QIF (Microsoft Money and Quicken) with smart column auto-matching
 
 ### Investment Features
 - Track stocks, bonds, ETFs, and mutual funds
 - Support for US and Canadian exchanges (NYSE, NASDAQ, TSX, TSXV)
 - Daily price updates from Yahoo Finance
+- Manual price management: add, edit, and delete individual price entries
+- Price backfill from transaction history (uses buy/sell prices when market data unavailable)
 - Investment transactions: buy, sell, dividend, interest, splits, transfers
 - Portfolio tracking with real-time valuations
 - Historical price backfill
@@ -145,13 +149,14 @@ I could easily add import capabilities for other filetypes, but I would need exa
 - OIDC (OpenID Connect) authentication (Authentik, Authelia, Pocket-ID, etc.)
 - Local credential authentication with bcrypt hashing
 - JWT-based session management with httpOnly cookies
+- "Remember Me" option with configurable extended session duration (default 30 days)
 - TOTP two-factor authentication with trusted device support
 - Personal access tokens (PAT) for API and MCP access
 - Admin user management with role-based access (admin/user)
 - Password reset via email with temporary passwords
 - Forced password change and forced 2FA policies
 - Rate limiting and request throttling
-- Helmet security headers
+- Helmet security headers (with `DISABLE_HTTPS_HEADERS` option for plain HTTP deployments)
 - CORS protection
 - Demo mode with sample data and daily resets
 
@@ -175,8 +180,9 @@ I could easily add import capabilities for other filetypes, but I would need exa
 - **Date Handling**: date-fns
 
 ### DevOps
+- **Runtime**: Node.js 24
 - **Containerization**: Docker & Docker Compose
-- **Orchestration**: Kubernetes-ready
+- **Orchestration**: Kubernetes-ready (Helm charts included)
 - **Output**: Next.js standalone build for minimal container size
 
 ## Project Structure
@@ -202,7 +208,8 @@ monize/
 │   │   ├── reports/           # User-defined custom reports
 │   │   ├── ai/                # AI assistant (providers, query engine, usage tracking)
 │   │   ├── mcp/               # Model Context Protocol server
-│   │   ├── import/            # QIF file import
+│   │   ├── tags/               # Transaction tags
+│   │   ├── import/            # QIF, CSV, OFX/QFX file import
 │   │   ├── health/            # Health check endpoints
 │   │   └── main.ts            # Application entry point
 │   └── Dockerfile
@@ -338,6 +345,8 @@ npm run dev
 | `AI_DEFAULT_API_KEY` | System-wide AI API key | - |
 | `AI_DEFAULT_BASE_URL` | Base URL for Ollama or compatible endpoints | - |
 | `JWT_EXPIRATION` | JWT token expiration time | `15m` |
+| `REMEMBER_ME_DAYS` | Duration for "Remember Me" sessions (days) | `30` |
+| `DISABLE_HTTPS_HEADERS` | Disable HSTS and COOP headers for plain HTTP | `false` |
 | `DEMO_MODE` | Enable demo mode with sample data | `false` |
 | `SMTP_SECURE` | Use TLS for SMTP | `false` |
 
