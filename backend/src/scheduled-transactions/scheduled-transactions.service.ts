@@ -54,6 +54,32 @@ export class ScheduledTransactionsService {
 
     try {
       const today = todayYMD();
+      this.logger.log(`Auto-post check date: ${today}`);
+
+      // Log all autoPost-enabled transactions for diagnostics
+      const allAutoPost =
+        await this.scheduledTransactionsRepository.find({
+          where: { autoPost: true },
+          select: [
+            "id",
+            "name",
+            "isActive",
+            "nextDueDate",
+            "isTransfer",
+            "frequency",
+          ],
+        });
+      if (allAutoPost.length > 0) {
+        for (const st of allAutoPost) {
+          this.logger.log(
+            `Auto-post candidate: "${st.name}" (ID: ${st.id}) ` +
+              `isActive=${st.isActive} nextDueDate=${st.nextDueDate} ` +
+              `isTransfer=${st.isTransfer} frequency=${st.frequency}`,
+          );
+        }
+      } else {
+        this.logger.log("No scheduled transactions have autoPost=true");
+      }
 
       const dueTransactions = await this.scheduledTransactionsRepository.find({
         where: {
