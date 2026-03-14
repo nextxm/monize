@@ -256,6 +256,10 @@ export interface ParsedQifMultiAccountResponse {
     description: string;
     isIncome: boolean;
   }>;
+  tagDefs: Array<{
+    name: string;
+    description: string;
+  }>;
   accounts: Array<{
     accountName: string;
     accountType: string;

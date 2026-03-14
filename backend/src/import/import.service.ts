@@ -163,6 +163,10 @@ export class ImportService {
         description: c.description,
         isIncome: c.isIncome,
       })),
+      tagDefs: result.tagDefs.map((t) => ({
+        name: t.name,
+        description: t.description,
+      })),
       accounts,
       totalTransactionCount,
       detectedDateFormat: result.detectedDateFormat,
@@ -229,13 +233,27 @@ export class ImportService {
       );
 
       // Step 3: Build transfer account map from all known accounts
+      // Include both newly created and pre-existing accounts so transfers resolve correctly
       const accountMap = new Map<string, string | null>();
+      const allUserAccounts = await queryRunner.manager.find(Account, {
+        where: { userId },
+      });
+      for (const acct of allUserAccounts) {
+        accountMap.set(acct.name, acct.id);
+      }
+      // Override with newly created/resolved accounts (may have different target IDs for investment pairs)
       for (const [name, id] of accountNameToId) {
         accountMap.set(name, id);
       }
 
-      // Step 4: Resolve tags from all transaction blocks
+      // Step 4: Resolve tags from !Type:Tag definitions and transaction blocks
       const tagMap = new Map<string, string>();
+      await this.createTagsFromDefs(
+        queryRunner,
+        userId,
+        result.tagDefs,
+        tagMap,
+      );
       await this.resolveMultiAccountTags(
         queryRunner,
         userId,
@@ -354,7 +372,12 @@ export class ImportService {
     const processedCategories = new Map<string, string>();
 
     for (const def of categoryDefs) {
-      const parts = def.name.split(":");
+      // For Quicken categories starting with underscore, use description as name
+      const effectiveName =
+        def.name.startsWith("_") && def.description
+          ? def.description
+          : def.name;
+      const parts = effectiveName.split(":");
       const isSubcategory = parts.length > 1;
 
       if (isSubcategory) {
@@ -385,23 +408,29 @@ export class ImportService {
           importResult,
         );
 
-        // Map the full "Parent:Child" name for transaction category resolution
-        categoryMap.set(
-          def.name,
-          processedCategories.get(`${childName}|${parentId}`)!,
-        );
+        // Map the full effective name for transaction category resolution
+        const childId = processedCategories.get(`${childName}|${parentId}`)!;
+        categoryMap.set(effectiveName, childId);
+        // Also map the original QIF name if it differs (underscore substitution)
+        if (def.name !== effectiveName) {
+          categoryMap.set(def.name, childId);
+        }
       } else {
         // Top-level category
-        await this.findOrCreateCategoryDef(
+        const catId = await this.findOrCreateCategoryDef(
           queryRunner,
           userId,
-          def.name,
+          effectiveName,
           null,
           def.isIncome,
           processedCategories,
           categoryMap,
           importResult,
         );
+        // Also map the original QIF name if it differs (underscore substitution)
+        if (def.name !== effectiveName) {
+          categoryMap.set(def.name, catId);
+        }
       }
     }
   }
@@ -539,6 +568,43 @@ export class ImportService {
         const saved = await queryRunner.manager.save(newAccount);
         accountNameToId.set(block.accountName, saved.id);
         importResult.accountsCreated++;
+      }
+    }
+  }
+
+  /**
+   * Create tags from !Type:Tag definitions in QIF file.
+   */
+  private async createTagsFromDefs(
+    queryRunner: any,
+    userId: string,
+    tagDefs: QifFullParseResult["tagDefs"],
+    tagMap: Map<string, string>,
+  ): Promise<void> {
+    if (tagDefs.length === 0) return;
+
+    const existingTags = await queryRunner.manager.find(Tag, {
+      where: { userId },
+    });
+
+    const existingByName = new Map<string, Tag>();
+    for (const tag of existingTags) {
+      existingByName.set(tag.name.toLowerCase(), tag);
+    }
+
+    for (const def of tagDefs) {
+      const key = def.name.toLowerCase();
+      const existing = existingByName.get(key);
+      if (existing) {
+        tagMap.set(key, existing.id);
+      } else {
+        const newTag = queryRunner.manager.create(Tag, {
+          userId,
+          name: def.name,
+        });
+        const saved = await queryRunner.manager.save(newTag);
+        tagMap.set(key, saved.id);
+        existingByName.set(key, saved);
       }
     }
   }

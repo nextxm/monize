@@ -656,6 +656,14 @@ export interface QifCategoryDef {
 }
 
 /**
+ * A tag definition parsed from a !Type:Tag section.
+ */
+export interface QifTagDef {
+  name: string;
+  description: string;
+}
+
+/**
  * A block of transactions belonging to one account, parsed from
  * an !Account + !Type:xxx pair in a multi-account QIF file.
  */
@@ -677,6 +685,7 @@ export interface QifAccountBlock {
  */
 export interface QifFullParseResult {
   categoryDefs: QifCategoryDef[];
+  tagDefs: QifTagDef[];
   accountBlocks: QifAccountBlock[];
   detectedDateFormat: DateFormat;
   sampleDates: string[];
@@ -710,11 +719,16 @@ export function parseQifFull(
 ): QifFullParseResult {
   const lines = content.split(/\r?\n/);
   const categoryDefs: QifCategoryDef[] = [];
+  const tagDefs: QifTagDef[] = [];
   const accountBlocks: QifAccountBlock[] = [];
   const rawDates: string[] = [];
 
   // Current category definition being built
   let currentCatDef: Partial<QifCategoryDef> | null = null;
+
+  // Current tag definition being built
+  let currentTagDef: Partial<QifTagDef> | null = null;
+  let inTagSection = false;
 
   // Current account block being built
   let currentBlock: QifAccountBlock | null = null;
@@ -812,7 +826,16 @@ export function parseQifFull(
         });
         currentCatDef = null;
       }
+      // Flush pending tag def if we were in a tag section
+      if (inTagSection && currentTagDef && currentTagDef.name) {
+        tagDefs.push({
+          name: truncate(currentTagDef.name, FIELD_LIMITS.CATEGORY),
+          description: currentTagDef.description || "",
+        });
+        currentTagDef = null;
+      }
       inCatSection = false;
+      inTagSection = false;
       inAccountSection = false;
       skippingSection = false;
     }
@@ -858,6 +881,31 @@ export function parseQifFull(
           });
         }
         currentCatDef = null;
+      }
+      continue;
+    }
+
+    // --- !Type:Tag section ---
+    if (inTagSection) {
+      if (code === "N") {
+        // Start new tag def (save previous if present)
+        if (currentTagDef && currentTagDef.name) {
+          tagDefs.push({
+            name: truncate(currentTagDef.name, FIELD_LIMITS.CATEGORY),
+            description: currentTagDef.description || "",
+          });
+        }
+        currentTagDef = { name: stripHtml(value) };
+      } else if (code === "D" && currentTagDef) {
+        currentTagDef.description = stripHtml(value);
+      } else if (code === "^") {
+        if (currentTagDef && currentTagDef.name) {
+          tagDefs.push({
+            name: truncate(currentTagDef.name, FIELD_LIMITS.CATEGORY),
+            description: currentTagDef.description || "",
+          });
+        }
+        currentTagDef = null;
       }
       continue;
     }
@@ -919,6 +967,9 @@ export function parseQifFull(
       if (nonTransactionSections.includes(type)) {
         if (type === "cat") {
           inCatSection = true;
+        } else if (type === "tag") {
+          inTagSection = true;
+          currentTagDef = null;
         } else {
           skippingSection = true;
         }
@@ -1156,6 +1207,7 @@ export function parseQifFull(
 
   return {
     categoryDefs,
+    tagDefs,
     accountBlocks,
     detectedDateFormat: detectedDateFormat || "MM/DD/YYYY",
     sampleDates,

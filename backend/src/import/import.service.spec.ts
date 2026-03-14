@@ -3323,6 +3323,7 @@ describe("ImportService", () => {
             taxSchedule: "",
           },
         ],
+        tagDefs: [{ name: "Vacation", description: "Travel" }],
         accountBlocks: [
           {
             accountName: "Checking",
@@ -3406,6 +3407,11 @@ describe("ImportService", () => {
         end: "2025-01-20",
       });
       expect(result.totalTransactionCount).toBe(2);
+      expect(result.tagDefs).toHaveLength(1);
+      expect(result.tagDefs[0]).toEqual({
+        name: "Vacation",
+        description: "Travel",
+      });
       expect(result.detectedDateFormat).toBe("MM/DD/YYYY");
       expect(result.sampleDates).toEqual(["01/15/2025", "01/20/2025"]);
     });
@@ -3425,6 +3431,7 @@ describe("ImportService", () => {
       mockedValidateQifContent.mockReturnValue({ valid: true });
       mockedParseQifFull.mockReturnValue({
         categoryDefs: [],
+        tagDefs: [],
         accountBlocks: [
           {
             accountName: "Checking",
@@ -3546,6 +3553,7 @@ describe("ImportService", () => {
           taxSchedule: "",
         },
       ],
+      tagDefs: [],
       accountBlocks: [
         {
           accountName: "Checking",
@@ -4000,6 +4008,133 @@ describe("ImportService", () => {
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
       expect(result.accountsCreated).toBe(1);
+    });
+
+    it("uses description instead of name for categories starting with underscore", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [
+            {
+              name: "_IntExp",
+              description: "Interest Expense",
+              isIncome: false,
+              taxRelated: false,
+              taxSchedule: "",
+            },
+            {
+              name: "_401k",
+              description: "",
+              isIncome: false,
+              taxRelated: false,
+              taxSchedule: "",
+            },
+            {
+              name: "Food",
+              description: "Food and dining",
+              isIncome: false,
+              taxRelated: false,
+              taxSchedule: "",
+            },
+          ],
+        }),
+      );
+
+      mockQueryRunner.manager.findOne.mockImplementation((entity) => {
+        if (entity === Account) {
+          return Promise.resolve({
+            id: "acct-1",
+            userId,
+            name: "Checking",
+            accountType: AccountType.CHEQUING,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      let saveIdx = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveIdx++;
+        return Promise.resolve({ ...entity, id: `saved-${saveIdx}` });
+      });
+
+      await service.importQifMultiAccountFile(userId, baseDto);
+
+      // "_IntExp" should be created as "Interest Expense" (description used)
+      const catCreates = mockQueryRunner.manager.create.mock.calls.filter(
+        (call) => call[0] === Category,
+      );
+      const catNames = catCreates.map((c) => c[1].name);
+      expect(catNames).toContain("Interest Expense");
+      // "_401k" has no description, so original name is used
+      expect(catNames).toContain("_401k");
+      // "Food" is normal, no underscore substitution
+      expect(catNames).toContain("Food");
+      // "_IntExp" should NOT be used as a category name
+      expect(catNames).not.toContain("_IntExp");
+    });
+
+    it("creates tags from tagDefs during import", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [],
+          tagDefs: [
+            { name: "Vacation", description: "Travel" },
+            { name: "Business", description: "Work" },
+          ],
+          accountBlocks: [
+            {
+              accountName: "Checking",
+              accountType: "CHEQUING",
+              description: "",
+              creditLimit: null,
+              transactions: [],
+              categories: [],
+              transferAccounts: [],
+              securities: [],
+              openingBalance: null,
+              openingBalanceDate: null,
+            },
+          ],
+        }),
+      );
+
+      // Account exists
+      mockQueryRunner.manager.findOne.mockImplementation((entity) => {
+        if (entity === Account) {
+          return Promise.resolve({
+            id: "acct-1",
+            userId,
+            name: "Checking",
+            accountType: AccountType.CHEQUING,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      // No existing tags
+      mockQueryRunner.manager.find.mockImplementation((entity) => {
+        if (entity === Tag) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([]);
+      });
+
+      let saveIdx = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveIdx++;
+        return Promise.resolve({ ...entity, id: `saved-${saveIdx}` });
+      });
+
+      await service.importQifMultiAccountFile(userId, baseDto);
+
+      const tagCreates = mockQueryRunner.manager.create.mock.calls.filter(
+        (call) => call[0] === Tag,
+      );
+      expect(tagCreates).toHaveLength(2);
+      const tagNames = tagCreates.map((c) => c[1].name).sort();
+      expect(tagNames).toEqual(["Business", "Vacation"]);
     });
   });
 });

@@ -330,6 +330,16 @@ export class ImportRegularProcessorService {
     if (!isSplit) {
       if (qifTx.isTransfer && qifTx.transferAccount) {
         transferAccountId = ctx.accountMap.get(qifTx.transferAccount) || null;
+        // Case-insensitive fallback
+        if (!transferAccountId) {
+          const lowerName = qifTx.transferAccount.toLowerCase();
+          for (const [name, id] of ctx.accountMap) {
+            if (name.toLowerCase() === lowerName) {
+              transferAccountId = id;
+              break;
+            }
+          }
+        }
       } else if (isLoanPaymentTx && qifTx.category) {
         transferAccountId = ctx.loanCategoryMap.get(qifTx.category) || null;
       }
@@ -353,6 +363,16 @@ export class ImportRegularProcessorService {
       if (split.isTransfer && split.transferAccount) {
         splitTransferAccountId =
           ctx.accountMap.get(split.transferAccount) || null;
+        // If transfer account not found, try case-insensitive match
+        if (!splitTransferAccountId) {
+          const lowerName = split.transferAccount.toLowerCase();
+          for (const [name, id] of ctx.accountMap) {
+            if (name.toLowerCase() === lowerName) {
+              splitTransferAccountId = id;
+              break;
+            }
+          }
+        }
       } else if (split.category) {
         if (ctx.loanCategoryMap.has(split.category)) {
           splitTransferAccountId =

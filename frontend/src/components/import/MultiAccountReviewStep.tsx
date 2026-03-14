@@ -28,7 +28,7 @@ export function MultiAccountReviewStep({
   onImport,
   setStep,
 }: MultiAccountReviewStepProps) {
-  const { categoryDefs, accounts, totalTransactionCount } = multiAccountData;
+  const { categoryDefs, tagDefs = [], accounts, totalTransactionCount } = multiAccountData;
   const incomeCategories = categoryDefs.filter((c) => c.isIncome);
   const expenseCategories = categoryDefs.filter((c) => !c.isIncome);
 
@@ -39,9 +39,10 @@ export function MultiAccountReviewStep({
       </h2>
       <p className="text-sm text-muted-foreground mb-6">
         This file contains {accounts.length} account{accounts.length !== 1 ? 's' : ''},{' '}
-        {categoryDefs.length} categor{categoryDefs.length !== 1 ? 'ies' : 'y'}, and{' '}
-        {totalTransactionCount} transaction{totalTransactionCount !== 1 ? 's' : ''}.
-        Categories, accounts, and transactions will be created automatically.
+        {categoryDefs.length} categor{categoryDefs.length !== 1 ? 'ies' : 'y'}
+        {tagDefs.length > 0 && (<>, {tagDefs.length} tag{tagDefs.length !== 1 ? 's' : ''}</>)}
+        , and {totalTransactionCount} transaction{totalTransactionCount !== 1 ? 's' : ''}.
+        Categories, accounts{tagDefs.length > 0 ? ', tags,' : ''} and transactions will be created automatically.
       </p>
 
       {/* Settings */}
@@ -136,6 +137,27 @@ export function MultiAccountReviewStep({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Tags */}
+      {tagDefs.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-foreground mb-2">
+            Tags ({tagDefs.length})
+          </h3>
+          <div className="bg-card border border-border rounded-lg p-4">
+            <div className="flex flex-wrap gap-1">
+              {tagDefs.map((tag, i) => (
+                <span
+                  key={i}
+                  className="inline-block px-2 py-0.5 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded"
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       )}

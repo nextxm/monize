@@ -9,6 +9,10 @@ const defaultMultiAccountData: ParsedQifMultiAccountResponse = {
     { name: 'Food', description: '', isIncome: false },
     { name: 'Salary', description: '', isIncome: true },
   ],
+  tagDefs: [
+    { name: 'Vacation', description: 'Travel' },
+    { name: 'Business', description: 'Work' },
+  ],
   accounts: [
     { accountName: 'Checking', accountType: 'Bank', transactionCount: 5, dateRange: { start: '2025-01-01', end: '2025-06-30' } },
     { accountName: 'Credit Card', accountType: 'CCard', transactionCount: 12, dateRange: { start: '2025-02-01', end: '2025-06-15' } },
@@ -96,5 +100,19 @@ describe('MultiAccountReviewStep', () => {
     render(<MultiAccountReviewStep {...defaultProps} multiAccountData={singleAccountData} />);
     expect(screen.getByText(/1 account/)).toBeInTheDocument();
     expect(screen.getByText(/1 category/)).toBeInTheDocument();
+  });
+
+  it('displays tag badges when tagDefs present', () => {
+    render(<MultiAccountReviewStep {...defaultProps} />);
+    expect(screen.getByText('Tags (2)')).toBeInTheDocument();
+    expect(screen.getByText('Vacation')).toBeInTheDocument();
+    expect(screen.getByText('Business')).toBeInTheDocument();
+    expect(screen.getByText(/2 tags/)).toBeInTheDocument();
+  });
+
+  it('hides tags section when no tagDefs', () => {
+    const noTagsData = { ...defaultMultiAccountData, tagDefs: [] };
+    render(<MultiAccountReviewStep {...defaultProps} multiAccountData={noTagsData} />);
+    expect(screen.queryByText(/Tags \(/)).not.toBeInTheDocument();
   });
 });

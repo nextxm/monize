@@ -1863,4 +1863,41 @@ T-50.00
       expect(result.categoryDefs[1].name).toBe("Utilities");
     });
   });
+
+  describe("tag definitions", () => {
+    it("parses !Type:Tag sections into tagDefs", () => {
+      const qif = `!Type:Tag\nNVacation\nDTrips and travel\n^\nNBusiness\nDWork expenses\n^\n!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2026\nT-50.00\n^\n`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.tagDefs).toHaveLength(2);
+      expect(result.tagDefs[0]).toEqual({
+        name: "Vacation",
+        description: "Trips and travel",
+      });
+      expect(result.tagDefs[1]).toEqual({
+        name: "Business",
+        description: "Work expenses",
+      });
+    });
+
+    it("handles tags without descriptions", () => {
+      const qif = `!Type:Tag\nNPersonal\n^\nNWork\n^\n!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2026\nT-50.00\n^\n`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.tagDefs).toHaveLength(2);
+      expect(result.tagDefs[0]).toEqual({ name: "Personal", description: "" });
+      expect(result.tagDefs[1]).toEqual({ name: "Work", description: "" });
+    });
+
+    it("flushes pending tag def on section transition", () => {
+      const qif = `!Type:Tag\nNVacation\nDTravel\n^\nNBusiness\n!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2026\nT-50.00\n^\n`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.tagDefs).toHaveLength(2);
+      expect(result.tagDefs[1].name).toBe("Business");
+    });
+
+    it("returns empty tagDefs when no !Type:Tag section present", () => {
+      const qif = `!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2026\nT-50.00\n^\n`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.tagDefs).toHaveLength(0);
+    });
+  });
 });

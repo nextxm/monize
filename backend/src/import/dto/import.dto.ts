@@ -372,6 +372,14 @@ export class ParsedQifMultiAccountResponseDto {
     isIncome: boolean;
   }>;
 
+  @ApiProperty({
+    description: "Tag definitions from !Type:Tag sections",
+  })
+  tagDefs: Array<{
+    name: string;
+    description: string;
+  }>;
+
   @ApiProperty({ description: "Account blocks found in the file" })
   accounts: Array<{
     accountName: string;
