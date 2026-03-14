@@ -8,16 +8,29 @@ import {
   forwardRef,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, DataSource, In } from "typeorm";
+import { Repository, DataSource, In, IsNull } from "typeorm";
 import { NetWorthService } from "../net-worth/net-worth.service";
 import { SecurityPriceService } from "../securities/security-price.service";
 import { ExchangeRateService } from "../currencies/exchange-rate.service";
-import { Account, AccountSubType } from "../accounts/entities/account.entity";
+import {
+  Account,
+  AccountType,
+  AccountSubType,
+} from "../accounts/entities/account.entity";
 import { Category } from "../categories/entities/category.entity";
 import { Payee } from "../payees/entities/payee.entity";
 import { ImportColumnMapping } from "./entities/import-column-mapping.entity";
-import { parseQif, validateQifContent, DateFormat } from "./qif-parser";
-import type { QifParseResult } from "./qif-parser";
+import {
+  parseQif,
+  parseQifFull,
+  validateQifContent,
+  DateFormat,
+} from "./qif-parser";
+import type {
+  QifParseResult,
+  QifFullParseResult,
+  QifAccountBlock,
+} from "./qif-parser";
 import { parseOfx, validateOfxContent } from "./ofx-parser";
 import {
   parseCsv,
@@ -27,9 +40,11 @@ import {
 import type { CsvColumnMappingConfig, CsvTransferRule } from "./csv-parser";
 import {
   ImportQifDto,
+  ImportQifMultiAccountDto,
   ImportOfxDto,
   ImportCsvDto,
   ParsedQifResponseDto,
+  ParsedQifMultiAccountResponseDto,
   ImportResultDto,
   CategoryMappingDto,
   AccountMappingDto,
@@ -105,6 +120,475 @@ export class ImportService {
       dto.securityMappings,
       dto.dateFormat as DateFormat,
     );
+  }
+
+  // --- Multi-account QIF ---
+
+  async parseQifMultiAccountFile(
+    userId: string,
+    content: string,
+  ): Promise<ParsedQifMultiAccountResponseDto> {
+    const validation = validateQifContent(content);
+    if (!validation.valid) {
+      throw new BadRequestException(validation.error);
+    }
+
+    const result = parseQifFull(content);
+
+    const accounts = result.accountBlocks.map((block) => {
+      const dates = block.transactions
+        .map((t) => t.date)
+        .filter((d) => d)
+        .sort();
+      return {
+        accountName: block.accountName,
+        accountType: block.accountType,
+        transactionCount: block.transactions.length,
+        dateRange: {
+          start: dates[0] || "",
+          end: dates[dates.length - 1] || "",
+        },
+      };
+    });
+
+    const totalTransactionCount = result.accountBlocks.reduce(
+      (sum, b) => sum + b.transactions.length,
+      0,
+    );
+
+    return {
+      isMultiAccount: result.isMultiAccount,
+      categoryDefs: result.categoryDefs.map((c) => ({
+        name: c.name,
+        description: c.description,
+        isIncome: c.isIncome,
+      })),
+      accounts,
+      totalTransactionCount,
+      detectedDateFormat: result.detectedDateFormat,
+      sampleDates: result.sampleDates,
+    };
+  }
+
+  async importQifMultiAccountFile(
+    userId: string,
+    dto: ImportQifMultiAccountDto,
+  ): Promise<ImportResultDto> {
+    const validation = validateQifContent(dto.content);
+    if (!validation.valid) {
+      throw new BadRequestException(validation.error);
+    }
+
+    const result = parseQifFull(dto.content, dto.dateFormat as DateFormat);
+
+    if (result.accountBlocks.length === 0) {
+      throw new BadRequestException(
+        "No account blocks found in QIF file. This file may not be a multi-account export.",
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    const affectedAccountIds = new Set<string>();
+    const importStartTime = new Date();
+    let hasInvestment = false;
+
+    const importResult: ImportResultDto = {
+      imported: 0,
+      skipped: 0,
+      errors: 0,
+      errorMessages: [],
+      categoriesCreated: 0,
+      accountsCreated: 0,
+      payeesCreated: 0,
+      securitiesCreated: 0,
+    };
+
+    try {
+      // Step 1: Create categories from !Type:Cat definitions
+      const categoryMap = new Map<string, string | null>();
+      await this.createCategoriesFromDefs(
+        queryRunner,
+        userId,
+        result.categoryDefs,
+        categoryMap,
+        importResult,
+      );
+
+      // Step 2: Create accounts from !Account blocks
+      const accountNameToId = new Map<string, string>();
+      await this.createAccountsFromBlocks(
+        queryRunner,
+        userId,
+        result.accountBlocks,
+        dto.currencyCode,
+        accountNameToId,
+        importResult,
+      );
+
+      // Step 3: Build transfer account map from all known accounts
+      const accountMap = new Map<string, string | null>();
+      for (const [name, id] of accountNameToId) {
+        accountMap.set(name, id);
+      }
+
+      // Step 4: Resolve tags from all transaction blocks
+      const tagMap = new Map<string, string>();
+      await this.resolveMultiAccountTags(
+        queryRunner,
+        userId,
+        result.accountBlocks,
+        tagMap,
+      );
+
+      // Step 5: Import transactions per account block
+      for (const block of result.accountBlocks) {
+        const accountId = accountNameToId.get(block.accountName);
+        if (!accountId) {
+          importResult.errors += block.transactions.length;
+          importResult.errorMessages.push(
+            `Skipped ${block.transactions.length} transactions: could not resolve account "${block.accountName}"`,
+          );
+          continue;
+        }
+
+        const account = await queryRunner.manager.findOne(Account, {
+          where: { id: accountId },
+        });
+        if (!account) {
+          importResult.errors += block.transactions.length;
+          importResult.errorMessages.push(
+            `Account "${block.accountName}" (${accountId}) not found in database`,
+          );
+          continue;
+        }
+
+        affectedAccountIds.add(accountId);
+
+        const isInvestment = block.accountType === "INVESTMENT";
+        if (isInvestment) hasInvestment = true;
+
+        const ctx: ImportContext = {
+          queryRunner,
+          userId,
+          accountId,
+          account,
+          categoryMap,
+          accountMap,
+          loanCategoryMap: new Map(),
+          securityMap: new Map(),
+          tagMap,
+          importStartTime,
+          dateCounters: new Map(),
+          affectedAccountIds,
+          importResult,
+        };
+
+        // Apply opening balance
+        if (block.openingBalance !== null) {
+          await this.entityCreator.applyOpeningBalance(
+            queryRunner,
+            accountId,
+            account,
+            block.openingBalance,
+          );
+        }
+
+        // Process transactions
+        let txIndex = 0;
+        for (const qifTx of block.transactions) {
+          txIndex++;
+          try {
+            if (isInvestment) {
+              await this.investmentProcessor.processTransaction(ctx, qifTx);
+            } else {
+              await this.regularProcessor.processTransaction(ctx, qifTx);
+            }
+          } catch (error) {
+            importResult.errors++;
+            importResult.errorMessages.push(
+              `Error importing transaction ${txIndex}/${block.transactions.length} in "${block.accountName}" on ${qifTx.date}: ${error.message}`,
+            );
+            this.logger.warn(
+              `Error importing transaction in "${block.accountName}": ${error.message}`,
+            );
+          }
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      this.logger.error(
+        `Multi-account import failed after ${importResult.imported} transactions`,
+        error.stack,
+      );
+      await queryRunner.rollbackTransaction();
+      throw new BadRequestException(
+        `Import failed after ${importResult.imported} transactions: ${error.message}`,
+      );
+    } finally {
+      await queryRunner.release();
+    }
+
+    // Post-import processing
+    await this.postImportProcessing(userId, hasInvestment, affectedAccountIds);
+
+    return importResult;
+  }
+
+  /**
+   * Create categories from !Type:Cat definitions.
+   * Handles parent:child hierarchy (e.g., "Utilities:Electricity").
+   * Sets isIncome based on QIF I/E flags.
+   */
+  private async createCategoriesFromDefs(
+    queryRunner: any,
+    userId: string,
+    categoryDefs: QifFullParseResult["categoryDefs"],
+    categoryMap: Map<string, string | null>,
+    importResult: ImportResultDto,
+  ): Promise<void> {
+    // Cache to avoid duplicate creation: "name|parentId" -> categoryId
+    const processedCategories = new Map<string, string>();
+
+    for (const def of categoryDefs) {
+      const parts = def.name.split(":");
+      const isSubcategory = parts.length > 1;
+
+      if (isSubcategory) {
+        const parentName = parts[0].trim();
+        const childName = parts.slice(1).join(":").trim();
+
+        // Find or create parent
+        const parentId = await this.findOrCreateCategoryDef(
+          queryRunner,
+          userId,
+          parentName,
+          null,
+          def.isIncome,
+          processedCategories,
+          categoryMap,
+          importResult,
+        );
+
+        // Find or create child
+        await this.findOrCreateCategoryDef(
+          queryRunner,
+          userId,
+          childName,
+          parentId,
+          def.isIncome,
+          processedCategories,
+          categoryMap,
+          importResult,
+        );
+
+        // Map the full "Parent:Child" name for transaction category resolution
+        categoryMap.set(
+          def.name,
+          processedCategories.get(`${childName}|${parentId}`)!,
+        );
+      } else {
+        // Top-level category
+        await this.findOrCreateCategoryDef(
+          queryRunner,
+          userId,
+          def.name,
+          null,
+          def.isIncome,
+          processedCategories,
+          categoryMap,
+          importResult,
+        );
+      }
+    }
+  }
+
+  private async findOrCreateCategoryDef(
+    queryRunner: any,
+    userId: string,
+    name: string,
+    parentId: string | null,
+    isIncome: boolean,
+    processedCategories: Map<string, string>,
+    categoryMap: Map<string, string | null>,
+    importResult: ImportResultDto,
+  ): Promise<string> {
+    const cacheKey = `${name}|${parentId || "null"}`;
+
+    if (processedCategories.has(cacheKey)) {
+      return processedCategories.get(cacheKey)!;
+    }
+
+    const whereClause: any = { userId, name };
+    if (parentId) {
+      whereClause.parentId = parentId;
+    } else {
+      whereClause.parentId = IsNull();
+    }
+
+    const existing = await queryRunner.manager.findOne(Category, {
+      where: whereClause,
+    });
+
+    if (existing) {
+      processedCategories.set(cacheKey, existing.id);
+      categoryMap.set(name, existing.id);
+      return existing.id;
+    }
+
+    const newCategory = queryRunner.manager.create(Category, {
+      userId,
+      name,
+      parentId,
+      isIncome,
+    });
+    const saved = await queryRunner.manager.save(newCategory);
+    processedCategories.set(cacheKey, saved.id);
+    categoryMap.set(name, saved.id);
+    importResult.categoriesCreated++;
+    return saved.id;
+  }
+
+  /**
+   * Create accounts from QIF account blocks.
+   * Uses find-or-create to avoid duplicates.
+   */
+  private async createAccountsFromBlocks(
+    queryRunner: any,
+    userId: string,
+    blocks: QifAccountBlock[],
+    currencyCode: string,
+    accountNameToId: Map<string, string>,
+    importResult: ImportResultDto,
+  ): Promise<void> {
+    for (const block of blocks) {
+      if (!block.accountName) continue;
+
+      // Skip if already processed (duplicate account names)
+      if (accountNameToId.has(block.accountName)) continue;
+
+      // Check for existing account by name
+      let existing = await queryRunner.manager.findOne(Account, {
+        where: { userId, name: block.accountName },
+      });
+
+      // For investment accounts, also check the " - Cash" variant
+      if (!existing && block.accountType === "INVESTMENT") {
+        existing = await queryRunner.manager.findOne(Account, {
+          where: { userId, name: `${block.accountName} - Cash` },
+        });
+      }
+
+      if (existing) {
+        // For investment brokerage accounts, target the linked cash account
+        const targetId =
+          existing.accountSubType === AccountSubType.INVESTMENT_BROKERAGE
+            ? existing.linkedAccountId!
+            : existing.id;
+        accountNameToId.set(block.accountName, targetId);
+        continue;
+      }
+
+      // Create new account
+      const accountType =
+        (block.accountType as AccountType) || AccountType.CHEQUING;
+
+      if (accountType === AccountType.INVESTMENT) {
+        // Create investment account pair
+        const cashAccount = queryRunner.manager.create(Account, {
+          userId,
+          name: `${block.accountName} - Cash`,
+          accountType: AccountType.INVESTMENT,
+          accountSubType: AccountSubType.INVESTMENT_CASH,
+          currencyCode,
+          openingBalance: 0,
+          currentBalance: 0,
+        });
+        const savedCash = await queryRunner.manager.save(cashAccount);
+
+        const brokerageAccount = queryRunner.manager.create(Account, {
+          userId,
+          name: `${block.accountName} - Brokerage`,
+          accountType: AccountType.INVESTMENT,
+          accountSubType: AccountSubType.INVESTMENT_BROKERAGE,
+          currencyCode,
+          openingBalance: 0,
+          currentBalance: 0,
+          linkedAccountId: savedCash.id,
+        });
+        const savedBrokerage = await queryRunner.manager.save(brokerageAccount);
+
+        savedCash.linkedAccountId = savedBrokerage.id;
+        await queryRunner.manager.save(savedCash);
+
+        accountNameToId.set(block.accountName, savedCash.id);
+        importResult.accountsCreated += 2;
+      } else {
+        const newAccount = queryRunner.manager.create(Account, {
+          userId,
+          name: block.accountName,
+          accountType,
+          currencyCode,
+          openingBalance: 0,
+          currentBalance: 0,
+          creditLimit: block.creditLimit ?? null,
+        });
+        const saved = await queryRunner.manager.save(newAccount);
+        accountNameToId.set(block.accountName, saved.id);
+        importResult.accountsCreated++;
+      }
+    }
+  }
+
+  /**
+   * Resolve tags from all account blocks for multi-account import.
+   */
+  private async resolveMultiAccountTags(
+    queryRunner: any,
+    userId: string,
+    blocks: QifAccountBlock[],
+    tagMap: Map<string, string>,
+  ): Promise<void> {
+    const tagNamesSet = new Set<string>();
+    for (const block of blocks) {
+      for (const tx of block.transactions) {
+        for (const name of tx.tagNames ?? []) {
+          tagNamesSet.add(name);
+        }
+        for (const split of tx.splits) {
+          for (const name of split.tagNames ?? []) {
+            tagNamesSet.add(name);
+          }
+        }
+      }
+    }
+
+    if (tagNamesSet.size === 0) return;
+
+    const existingTags = await queryRunner.manager.find(Tag, {
+      where: { userId },
+    });
+
+    const existingByName = new Map<string, Tag>();
+    for (const tag of existingTags) {
+      existingByName.set(tag.name.toLowerCase(), tag);
+    }
+
+    for (const name of tagNamesSet) {
+      const key = name.toLowerCase();
+      const existing = existingByName.get(key);
+      if (existing) {
+        tagMap.set(key, existing.id);
+      } else {
+        const newTag = queryRunner.manager.create(Tag, { userId, name });
+        const saved = await queryRunner.manager.save(newTag);
+        tagMap.set(key, saved.id);
+        existingByName.set(key, saved);
+      }
+    }
   }
 
   // --- OFX ---

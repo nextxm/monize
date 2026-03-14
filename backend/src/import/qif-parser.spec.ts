@@ -1409,3 +1409,390 @@ LFood/
     });
   });
 });
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { parseQifFull, isMultiAccountQif } = require("./qif-parser");
+
+describe("parseQifFull - Multi-account QIF", () => {
+  describe("isMultiAccountQif", () => {
+    it("detects multiple !Account sections", () => {
+      const content = `!Account\nNChecking\nTBank\n^\n!Type:Bank\n^\n!Account\nNSavings\nTBank\n^\n!Type:Bank\n^`;
+      expect(isMultiAccountQif(content)).toBe(true);
+    });
+
+    it("detects !Type:Cat section", () => {
+      const content = `!Type:Cat\nNFood\nE\n^\n!Account\nNChecking\nTBank\n^\n!Type:Bank\n^`;
+      expect(isMultiAccountQif(content)).toBe(true);
+    });
+
+    it("returns false for single-account QIF", () => {
+      const content = `!Type:Bank\nD01/15/2026\nT-50.00\nPGrocery\n^`;
+      expect(isMultiAccountQif(content)).toBe(false);
+    });
+  });
+
+  describe("category definitions", () => {
+    it("parses !Type:Cat section with income and expense categories", () => {
+      const qif = `!Type:Cat
+NFood
+DGroceries and dining
+E
+^
+NIncome:Salary
+DSalary payments
+I
+^
+NUtilities
+DUtility bills
+E
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.categoryDefs).toHaveLength(3);
+
+      expect(result.categoryDefs[0]).toEqual({
+        name: "Food",
+        description: "Groceries and dining",
+        isIncome: false,
+        taxRelated: false,
+        taxSchedule: "",
+      });
+
+      expect(result.categoryDefs[1]).toEqual({
+        name: "Income:Salary",
+        description: "Salary payments",
+        isIncome: true,
+        taxRelated: false,
+        taxSchedule: "",
+      });
+    });
+
+    it("parses tax-related categories", () => {
+      const qif = `!Type:Cat
+NCharitable Donations
+DDonations to charity
+E
+T
+RSchedule A
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.categoryDefs[0].taxRelated).toBe(true);
+      expect(result.categoryDefs[0].taxSchedule).toBe("Schedule A");
+    });
+
+    it("defaults to expense when neither I nor E is specified", () => {
+      const qif = `!Type:Cat
+NMiscellaneous
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.categoryDefs[0].isIncome).toBe(false);
+    });
+  });
+
+  describe("account blocks", () => {
+    it("groups transactions by account", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+PGrocery Store
+LFood
+^
+D01/16/2026
+T-25.00
+PGas Station
+^
+!Account
+NCredit Card
+TCCard
+^
+!Type:CCard
+D01/17/2026
+T-100.00
+PAmazon
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.accountBlocks).toHaveLength(2);
+
+      expect(result.accountBlocks[0].accountName).toBe("Checking");
+      expect(result.accountBlocks[0].accountType).toBe("CHEQUING");
+      expect(result.accountBlocks[0].transactions).toHaveLength(2);
+
+      expect(result.accountBlocks[1].accountName).toBe("Credit Card");
+      expect(result.accountBlocks[1].accountType).toBe("CREDIT_CARD");
+      expect(result.accountBlocks[1].transactions).toHaveLength(1);
+    });
+
+    it("extracts categories per account block", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+LFood
+^
+!Account
+NCredit Card
+TCCard
+^
+!Type:CCard
+D01/15/2026
+T-100.00
+LClothing
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.accountBlocks[0].categories).toEqual(["Food"]);
+      expect(result.accountBlocks[1].categories).toEqual(["Clothing"]);
+    });
+
+    it("extracts transfer accounts per block", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-500.00
+L[Savings]
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.accountBlocks[0].transferAccounts).toEqual(["Savings"]);
+      expect(result.accountBlocks[0].transactions[0].isTransfer).toBe(true);
+    });
+
+    it("handles opening balance per account", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/01/2020
+T1000.00
+POpening Balance
+L[Checking]
+^
+D01/15/2026
+T-50.00
+PGrocery
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.accountBlocks[0].openingBalance).toBe(1000);
+      expect(result.accountBlocks[0].transactions).toHaveLength(1);
+    });
+
+    it("handles investment account type", () => {
+      const qif = `!Account
+NMy Portfolio
+TInvst
+^
+!Type:Invst
+D01/15/2026
+NBuy
+YAAPL
+I150.00
+Q10
+T1500.00
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.accountBlocks[0].accountType).toBe("INVESTMENT");
+      expect(result.accountBlocks[0].securities).toEqual(["AAPL"]);
+    });
+  });
+
+  describe("full multi-account file", () => {
+    it("parses categories then accounts with transactions", () => {
+      const qif = `!Type:Cat
+NFood
+E
+^
+NIncome:Salary
+I
+^
+!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+PGrocery Store
+LFood
+^
+D01/31/2026
+T3000.00
+PEmployer
+LIncome:Salary
+^
+!Account
+NVisa
+TCCard
+^
+!Type:CCard
+D01/20/2026
+T-200.00
+PAmazon
+LFood
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+
+      // Categories parsed
+      expect(result.categoryDefs).toHaveLength(2);
+      expect(result.categoryDefs[0].name).toBe("Food");
+      expect(result.categoryDefs[0].isIncome).toBe(false);
+      expect(result.categoryDefs[1].name).toBe("Income:Salary");
+      expect(result.categoryDefs[1].isIncome).toBe(true);
+
+      // Account blocks
+      expect(result.accountBlocks).toHaveLength(2);
+      expect(result.accountBlocks[0].accountName).toBe("Checking");
+      expect(result.accountBlocks[0].transactions).toHaveLength(2);
+      expect(result.accountBlocks[1].accountName).toBe("Visa");
+      expect(result.accountBlocks[1].transactions).toHaveLength(1);
+
+      expect(result.isMultiAccount).toBe(true);
+    });
+
+    it("ignores !Type:Class and !Type:Memorized sections", () => {
+      const qif = `!Type:Cat
+NFood
+E
+^
+!Type:Class
+NPersonal
+^
+!Type:Memorized
+D01/01/2026
+T-50.00
+PMonthly Sub
+^
+!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+PGrocery
+LFood
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.categoryDefs).toHaveLength(1);
+      expect(result.accountBlocks).toHaveLength(1);
+      expect(result.accountBlocks[0].transactions).toHaveLength(1);
+    });
+
+    it("ignores AutoSwitch directives", () => {
+      const qif = `!Option:AutoSwitch
+!Type:Cat
+NFood
+E
+^
+!Clear:AutoSwitch
+!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.categoryDefs).toHaveLength(1);
+      expect(result.accountBlocks).toHaveLength(1);
+    });
+
+    it("handles tags in multi-account transactions", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+LFood/Weekly
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      const tx = result.accountBlocks[0].transactions[0];
+      expect(tx.category).toBe("Food");
+      expect(tx.tagNames).toEqual(["Weekly"]);
+    });
+
+    it("handles split transactions in multi-account", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-100.00
+PStore
+SFood
+$-60.00
+SClothing
+$-40.00
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      const tx = result.accountBlocks[0].transactions[0];
+      expect(tx.splits).toHaveLength(2);
+      expect(tx.splits[0].category).toBe("Food");
+      expect(tx.splits[0].amount).toBe(-60);
+      expect(tx.splits[1].category).toBe("Clothing");
+      expect(tx.splits[1].amount).toBe(-40);
+    });
+
+    it("detects date format across all account blocks", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D15/01/2026
+T-50.00
+^
+!Account
+NSavings
+TBank
+^
+!Type:Bank
+D20/01/2026
+T100.00
+^
+`;
+      const result = parseQifFull(qif);
+      expect(result.detectedDateFormat).toBe("DD/MM/YYYY");
+      expect(result.accountBlocks[0].transactions[0].date).toBe("2026-01-15");
+    });
+
+    it("returns isMultiAccount false for single account without categories", () => {
+      const qif = `!Account
+NChecking
+TBank
+^
+!Type:Bank
+D01/15/2026
+T-50.00
+^
+`;
+      const result = parseQifFull(qif, "MM/DD/YYYY");
+      expect(result.isMultiAccount).toBe(false);
+      expect(result.accountBlocks).toHaveLength(1);
+    });
+  });
+});

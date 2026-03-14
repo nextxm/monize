@@ -31,6 +31,8 @@ import { ImportRegularProcessorService } from "./import-regular-processor.servic
 // Mock the qif-parser module so we can control its return values
 jest.mock("./qif-parser", () => ({
   parseQif: jest.fn(),
+  parseQifFull: jest.fn(),
+  isMultiAccountQif: jest.fn(),
   validateQifContent: jest.fn(),
 }));
 
@@ -47,7 +49,12 @@ jest.mock("./csv-parser", () => ({
   validateCsvContent: jest.fn(),
 }));
 
-import { parseQif, validateQifContent } from "./qif-parser";
+import {
+  parseQif,
+  parseQifFull,
+  isMultiAccountQif,
+  validateQifContent,
+} from "./qif-parser";
 import { parseOfx, validateOfxContent } from "./ofx-parser";
 import {
   parseCsv,
@@ -58,6 +65,12 @@ import { ImportColumnMapping } from "./entities/import-column-mapping.entity";
 import { ConflictException } from "@nestjs/common";
 
 const mockedParseQif = parseQif as jest.MockedFunction<typeof parseQif>;
+const mockedParseQifFull = parseQifFull as jest.MockedFunction<
+  typeof parseQifFull
+>;
+const mockedIsMultiAccountQif = isMultiAccountQif as jest.MockedFunction<
+  typeof isMultiAccountQif
+>;
 const mockedValidateQifContent = validateQifContent as jest.MockedFunction<
   typeof validateQifContent
 >;
@@ -158,6 +171,8 @@ describe("ImportService", () => {
   beforeEach(async () => {
     // Reset all mocked module functions
     mockedParseQif.mockReset();
+    mockedParseQifFull.mockReset();
+    mockedIsMultiAccountQif.mockReset();
     mockedValidateQifContent.mockReset();
     mockedParseOfx.mockReset();
     mockedValidateOfxContent.mockReset();
@@ -3281,6 +3296,560 @@ describe("ImportService", () => {
       await expect(
         service.deleteColumnMapping(userId, "nonexistent-id"),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe("parseQifMultiAccountFile", () => {
+    const validContent =
+      "!Type:Cat\nNFood\nE\n^\n!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2025\nT-50.00\nPGrocery\n^";
+
+    it("parses a multi-account QIF file and returns summary", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue({
+        categoryDefs: [
+          {
+            name: "Food",
+            description: "",
+            isIncome: false,
+            taxRelated: false,
+            taxSchedule: "",
+          },
+          {
+            name: "Salary",
+            description: "Monthly pay",
+            isIncome: true,
+            taxRelated: false,
+            taxSchedule: "",
+          },
+        ],
+        accountBlocks: [
+          {
+            accountName: "Checking",
+            accountType: "CHEQUING",
+            description: "",
+            creditLimit: null,
+            transactions: [
+              {
+                date: "2025-01-15",
+                amount: -50,
+                payee: "Grocery",
+                memo: "",
+                number: "",
+                cleared: false,
+                reconciled: false,
+                category: "Food",
+                splits: [],
+                tagNames: [],
+                isTransfer: false,
+                transferAccount: "",
+                security: "",
+                action: "",
+                price: 0,
+                quantity: 0,
+                commission: 0,
+              },
+              {
+                date: "2025-01-20",
+                amount: 2000,
+                payee: "Employer",
+                memo: "",
+                number: "",
+                cleared: false,
+                reconciled: false,
+                category: "Salary",
+                splits: [],
+                tagNames: [],
+                isTransfer: false,
+                transferAccount: "",
+                security: "",
+                action: "",
+                price: 0,
+                quantity: 0,
+                commission: 0,
+              },
+            ],
+            categories: ["Food", "Salary"],
+            transferAccounts: [],
+            securities: [],
+            openingBalance: null,
+            openingBalanceDate: null,
+          },
+        ],
+        detectedDateFormat: "MM/DD/YYYY" as any,
+        sampleDates: ["01/15/2025", "01/20/2025"],
+        isMultiAccount: true,
+      });
+
+      const result = await service.parseQifMultiAccountFile(
+        userId,
+        validContent,
+      );
+
+      expect(result.isMultiAccount).toBe(true);
+      expect(result.categoryDefs).toHaveLength(2);
+      expect(result.categoryDefs[0]).toEqual({
+        name: "Food",
+        description: "",
+        isIncome: false,
+      });
+      expect(result.categoryDefs[1]).toEqual({
+        name: "Salary",
+        description: "Monthly pay",
+        isIncome: true,
+      });
+      expect(result.accounts).toHaveLength(1);
+      expect(result.accounts[0].accountName).toBe("Checking");
+      expect(result.accounts[0].transactionCount).toBe(2);
+      expect(result.accounts[0].dateRange).toEqual({
+        start: "2025-01-15",
+        end: "2025-01-20",
+      });
+      expect(result.totalTransactionCount).toBe(2);
+      expect(result.detectedDateFormat).toBe("MM/DD/YYYY");
+      expect(result.sampleDates).toEqual(["01/15/2025", "01/20/2025"]);
+    });
+
+    it("throws BadRequestException for invalid content", async () => {
+      mockedValidateQifContent.mockReturnValue({
+        valid: false,
+        error: "Not a valid QIF file",
+      });
+
+      await expect(
+        service.parseQifMultiAccountFile(userId, "invalid"),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("handles multiple accounts with date ranges", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue({
+        categoryDefs: [],
+        accountBlocks: [
+          {
+            accountName: "Checking",
+            accountType: "CHEQUING",
+            description: "",
+            creditLimit: null,
+            transactions: [
+              {
+                date: "2025-01-15",
+                amount: -50,
+                payee: "Store",
+                memo: "",
+                number: "",
+                cleared: false,
+                reconciled: false,
+                category: "",
+                splits: [],
+                tagNames: [],
+                isTransfer: false,
+                transferAccount: "",
+                security: "",
+                action: "",
+                price: 0,
+                quantity: 0,
+                commission: 0,
+              },
+            ],
+            categories: [],
+            transferAccounts: [],
+            securities: [],
+            openingBalance: null,
+            openingBalanceDate: null,
+          },
+          {
+            accountName: "Savings",
+            accountType: "SAVINGS",
+            description: "",
+            creditLimit: null,
+            transactions: [
+              {
+                date: "2025-02-01",
+                amount: 100,
+                payee: "Transfer",
+                memo: "",
+                number: "",
+                cleared: false,
+                reconciled: false,
+                category: "",
+                splits: [],
+                tagNames: [],
+                isTransfer: false,
+                transferAccount: "",
+                security: "",
+                action: "",
+                price: 0,
+                quantity: 0,
+                commission: 0,
+              },
+              {
+                date: "2025-03-01",
+                amount: 100,
+                payee: "Transfer",
+                memo: "",
+                number: "",
+                cleared: false,
+                reconciled: false,
+                category: "",
+                splits: [],
+                tagNames: [],
+                isTransfer: false,
+                transferAccount: "",
+                security: "",
+                action: "",
+                price: 0,
+                quantity: 0,
+                commission: 0,
+              },
+            ],
+            categories: [],
+            transferAccounts: [],
+            securities: [],
+            openingBalance: null,
+            openingBalanceDate: null,
+          },
+        ],
+        detectedDateFormat: "MM/DD/YYYY" as any,
+        sampleDates: [],
+        isMultiAccount: true,
+      });
+
+      const result = await service.parseQifMultiAccountFile(
+        userId,
+        validContent,
+      );
+
+      expect(result.accounts).toHaveLength(2);
+      expect(result.accounts[0].accountName).toBe("Checking");
+      expect(result.accounts[0].transactionCount).toBe(1);
+      expect(result.accounts[1].accountName).toBe("Savings");
+      expect(result.accounts[1].transactionCount).toBe(2);
+      expect(result.totalTransactionCount).toBe(3);
+    });
+  });
+
+  describe("importQifMultiAccountFile", () => {
+    const baseDto = {
+      content:
+        "!Type:Cat\nNFood\nE\n^\n!Account\nNChecking\nTBank\n^\n!Type:Bank\nD01/15/2025\nT-50.00\nPGrocery\n^",
+      currencyCode: "CAD",
+    };
+
+    const makeFullParseResult = (overrides: any = {}) => ({
+      categoryDefs: [
+        {
+          name: "Food",
+          description: "",
+          isIncome: false,
+          taxRelated: false,
+          taxSchedule: "",
+        },
+      ],
+      accountBlocks: [
+        {
+          accountName: "Checking",
+          accountType: "CHEQUING",
+          description: "",
+          creditLimit: null,
+          transactions: [
+            {
+              date: "2025-01-15",
+              amount: -50,
+              payee: "Grocery",
+              memo: "",
+              number: "",
+              cleared: false,
+              reconciled: false,
+              category: "Food",
+              splits: [],
+              tagNames: [],
+              isTransfer: false,
+              transferAccount: "",
+              security: "",
+              action: "",
+              price: 0,
+              quantity: 0,
+              commission: 0,
+            },
+          ],
+          categories: ["Food"],
+          transferAccounts: [],
+          securities: [],
+          openingBalance: null,
+          openingBalanceDate: null,
+        },
+      ],
+      detectedDateFormat: "MM/DD/YYYY" as any,
+      sampleDates: [],
+      isMultiAccount: true,
+      ...overrides,
+    });
+
+    it("throws BadRequestException for invalid QIF content", async () => {
+      mockedValidateQifContent.mockReturnValue({
+        valid: false,
+        error: "Invalid",
+      });
+
+      await expect(
+        service.importQifMultiAccountFile(userId, baseDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws BadRequestException when no account blocks found", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({ accountBlocks: [] }),
+      );
+
+      await expect(
+        service.importQifMultiAccountFile(userId, baseDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("creates categories from definitions", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [
+            {
+              name: "Food",
+              description: "",
+              isIncome: false,
+              taxRelated: false,
+              taxSchedule: "",
+            },
+            {
+              name: "Utilities:Electricity",
+              description: "",
+              isIncome: false,
+              taxRelated: false,
+              taxSchedule: "",
+            },
+          ],
+        }),
+      );
+
+      mockQueryRunner.manager.findOne.mockImplementation((entity) => {
+        // Category lookups: return null (not found) so they get created
+        if (entity === Category) return Promise.resolve(null);
+        // Account lookups: return a mock account for transaction processing
+        if (entity === Account) {
+          return Promise.resolve({
+            id: "new-acct-id",
+            userId,
+            name: "Checking",
+            accountType: AccountType.CHEQUING,
+            currencyCode: "CAD",
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      let saveCallCount = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveCallCount++;
+        return Promise.resolve({ ...entity, id: `generated-${saveCallCount}` });
+      });
+
+      const result = await service.importQifMultiAccountFile(userId, baseDto);
+
+      // Should have created categories: "Food", "Utilities" (parent), "Electricity" (child)
+      expect(result.categoriesCreated).toBe(3);
+    });
+
+    it("creates non-investment accounts with correct type and currency", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [],
+          accountBlocks: [
+            {
+              accountName: "My Bank",
+              accountType: "CHEQUING",
+              description: "",
+              creditLimit: null,
+              transactions: [],
+              categories: [],
+              transferAccounts: [],
+              securities: [],
+              openingBalance: null,
+              openingBalanceDate: null,
+            },
+            {
+              accountName: "Visa",
+              accountType: "CREDIT_CARD",
+              description: "",
+              creditLimit: 5000,
+              transactions: [],
+              categories: [],
+              transferAccounts: [],
+              securities: [],
+              openingBalance: null,
+              openingBalanceDate: null,
+            },
+          ],
+        }),
+      );
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(null);
+      const savedAccounts: any[] = [];
+      let saveIdx = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveIdx++;
+        const saved = { ...entity, id: `acct-${saveIdx}` };
+        savedAccounts.push(saved);
+        return Promise.resolve(saved);
+      });
+
+      const result = await service.importQifMultiAccountFile(userId, baseDto);
+
+      expect(result.accountsCreated).toBe(2);
+      // Verify the accounts were created with correct properties
+      const bankCreate = mockQueryRunner.manager.create.mock.calls.find(
+        (call) => call[0] === Account && call[1]?.name === "My Bank",
+      );
+      expect(bankCreate).toBeDefined();
+      expect(bankCreate[1].accountType).toBe(AccountType.CHEQUING);
+      expect(bankCreate[1].currencyCode).toBe("CAD");
+
+      const visaCreate = mockQueryRunner.manager.create.mock.calls.find(
+        (call) => call[0] === Account && call[1]?.name === "Visa",
+      );
+      expect(visaCreate).toBeDefined();
+      expect(visaCreate[1].accountType).toBe(AccountType.CREDIT_CARD);
+      expect(visaCreate[1].creditLimit).toBe(5000);
+    });
+
+    it("creates investment account pair (cash + brokerage)", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [],
+          accountBlocks: [
+            {
+              accountName: "RRSP",
+              accountType: "INVESTMENT",
+              description: "",
+              creditLimit: null,
+              transactions: [],
+              categories: [],
+              transferAccounts: [],
+              securities: [],
+              openingBalance: null,
+              openingBalanceDate: null,
+            },
+          ],
+        }),
+      );
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(null);
+      let saveIdx = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveIdx++;
+        return Promise.resolve({ ...entity, id: `inv-${saveIdx}` });
+      });
+
+      const result = await service.importQifMultiAccountFile(userId, baseDto);
+
+      expect(result.accountsCreated).toBe(2);
+      // Should create Cash and Brokerage accounts
+      const cashCreate = mockQueryRunner.manager.create.mock.calls.find(
+        (call) => call[0] === Account && call[1]?.name === "RRSP - Cash",
+      );
+      expect(cashCreate).toBeDefined();
+      expect(cashCreate[1].accountSubType).toBe(AccountSubType.INVESTMENT_CASH);
+
+      const brokerageCreate = mockQueryRunner.manager.create.mock.calls.find(
+        (call) => call[0] === Account && call[1]?.name === "RRSP - Brokerage",
+      );
+      expect(brokerageCreate).toBeDefined();
+      expect(brokerageCreate[1].accountSubType).toBe(
+        AccountSubType.INVESTMENT_BROKERAGE,
+      );
+    });
+
+    it("reuses existing accounts by name", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [],
+        }),
+      );
+
+      // Return existing account on findOne
+      mockQueryRunner.manager.findOne.mockImplementation((entity, opts) => {
+        if (entity === Account && opts?.where?.name === "Checking") {
+          return Promise.resolve({
+            id: "existing-acct",
+            userId,
+            name: "Checking",
+            accountType: AccountType.CHEQUING,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      const result = await service.importQifMultiAccountFile(userId, baseDto);
+
+      expect(result.accountsCreated).toBe(0);
+    });
+
+    it("rolls back transaction on error", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(makeFullParseResult());
+
+      mockQueryRunner.manager.findOne.mockRejectedValue(new Error("DB error"));
+
+      await expect(
+        service.importQifMultiAccountFile(userId, baseDto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
+
+    it("commits transaction on success and calls post-import processing", async () => {
+      mockedValidateQifContent.mockReturnValue({ valid: true });
+      mockedParseQifFull.mockReturnValue(
+        makeFullParseResult({
+          categoryDefs: [],
+          accountBlocks: [
+            {
+              accountName: "Test",
+              accountType: "CHEQUING",
+              description: "",
+              creditLimit: null,
+              transactions: [],
+              categories: [],
+              transferAccounts: [],
+              securities: [],
+              openingBalance: null,
+              openingBalanceDate: null,
+            },
+          ],
+        }),
+      );
+
+      // Return null for category findOne, mock account
+      mockQueryRunner.manager.findOne.mockImplementation((entity, opts) => {
+        if (entity === Account && opts?.where?.name === "Test") {
+          return Promise.resolve(null);
+        }
+        return Promise.resolve(null);
+      });
+
+      let saveIdx = 0;
+      mockQueryRunner.manager.save.mockImplementation((entity) => {
+        saveIdx++;
+        return Promise.resolve({ ...entity, id: `saved-${saveIdx}` });
+      });
+
+      const result = await service.importQifMultiAccountFile(userId, baseDto);
+
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+      expect(result.accountsCreated).toBe(1);
     });
   });
 });
