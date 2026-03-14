@@ -87,8 +87,17 @@ describe('DangerZoneSection', () => {
       expect(screen.getByRole('button', { name: 'Confirm Delete' })).not.toBeDisabled();
     });
 
-    it('does not show password field for OIDC-only users', () => {
+    it('does not show password field for OIDC users', () => {
       render(<DangerZoneSection user={oidcUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
+
+      expect(screen.queryByText(/Enter your password:/)).not.toBeInTheDocument();
+    });
+
+    it('does not show password field for OIDC users even when they have a password', () => {
+      const oidcWithPassword: User = { ...oidcUser, hasPassword: true };
+      render(<DangerZoneSection user={oidcWithPassword} />);
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
 
@@ -146,13 +155,23 @@ describe('DangerZoneSection', () => {
       expect(screen.getByRole('button', { name: 'Confirm Delete Data' })).toBeDisabled();
     });
 
-    it('shows OIDC re-auth button for OIDC-only users', () => {
+    it('shows OIDC re-auth button for OIDC users', () => {
       render(<DangerZoneSection user={oidcUser} />);
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
 
       expect(screen.getByText(/Re-authenticate with your identity provider/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Re-authenticate and Delete' })).toBeInTheDocument();
+    });
+
+    it('shows OIDC re-auth for OIDC users with a password (not password field)', () => {
+      const oidcWithPassword: User = { ...oidcUser, hasPassword: true };
+      render(<DangerZoneSection user={oidcWithPassword} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+
+      expect(screen.getByText(/Re-authenticate with your identity provider/)).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Enter your password')).not.toBeInTheDocument();
     });
 
     it('calls deleteData API with password and options', async () => {
@@ -263,7 +282,7 @@ describe('DangerZoneSection', () => {
       expect(screen.getByRole('button', { name: 'Delete Data...' })).toBeInTheDocument();
     });
 
-    it('triggers OIDC re-auth flow for OIDC-only users', () => {
+    it('triggers OIDC re-auth flow for OIDC users', () => {
       render(<DangerZoneSection user={oidcUser} />);
 
       fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));

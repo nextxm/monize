@@ -34,21 +34,21 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
   const [deletePayees, setDeletePayees] = useState(false);
   const [deleteExchangeRates, setDeleteExchangeRates] = useState(false);
 
-  const isOidcOnly = user.authProvider === 'oidc' && !user.hasPassword;
+  const isOidc = user.authProvider === 'oidc';
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
       toast.error('Please type DELETE to confirm');
       return;
     }
-    if (!isOidcOnly && !deleteAccountPassword) {
+    if (!isOidc && !deleteAccountPassword) {
       toast.error('Please enter your password to confirm');
       return;
     }
 
     setIsDeleting(true);
     try {
-      const authData = isOidcOnly
+      const authData = isOidc
         ? { oidcIdToken: 'oidc-session-confirmed' }
         : { password: deleteAccountPassword };
       await userSettingsApi.deleteAccount(authData);
@@ -62,7 +62,7 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
   };
 
   const handleDeleteData = async () => {
-    if (!isOidcOnly && !password) {
+    if (!isOidc && !password) {
       toast.error('Please enter your password to confirm');
       return;
     }
@@ -76,7 +76,7 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
         deleteExchangeRates,
       };
 
-      if (isOidcOnly) {
+      if (isOidc) {
         options.oidcIdToken = 'oidc-session-confirmed';
       } else {
         options.password = password;
@@ -193,11 +193,11 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
 
             <div className="pt-2 border-t border-red-200 dark:border-red-800">
               <p className="text-sm font-medium text-red-700 dark:text-red-300 mb-2">
-                {isOidcOnly
+                {isOidc
                   ? 'Re-authenticate with your identity provider to confirm:'
                   : 'Enter your password to confirm:'}
               </p>
-              {isOidcOnly ? (
+              {isOidc ? (
                 <div className="flex gap-2">
                   <Button
                     variant="danger"
@@ -285,7 +285,7 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder="Type DELETE"
             />
-            {!isOidcOnly && (
+            {!isOidc && (
               <>
                 <p className="text-sm text-red-600 dark:text-red-400 font-medium">
                   Enter your password:
@@ -302,7 +302,7 @@ export function DangerZoneSection({ user }: DangerZoneSectionProps) {
               <Button
                 variant="danger"
                 onClick={handleDeleteAccount}
-                disabled={isDeleting || deleteConfirmText !== 'DELETE' || (!isOidcOnly && !deleteAccountPassword)}
+                disabled={isDeleting || deleteConfirmText !== 'DELETE' || (!isOidc && !deleteAccountPassword)}
               >
                 {isDeleting ? 'Deleting...' : 'Confirm Delete'}
               </Button>
