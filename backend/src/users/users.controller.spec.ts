@@ -164,18 +164,13 @@ describe("UsersController", () => {
   describe("deleteData()", () => {
     it("delegates to usersService.deleteData and returns result", async () => {
       const deleted = { transactions: 50, securities: 10 };
-      mockUsersService.deleteData = jest
-        .fn()
-        .mockResolvedValue({ deleted });
+      mockUsersService.deleteData = jest.fn().mockResolvedValue({ deleted });
       const dto = { password: "mypass", deleteAccounts: true };
 
       const result = await controller.deleteData(mockReq, dto);
 
       expect(result).toEqual({ deleted });
-      expect(mockUsersService.deleteData).toHaveBeenCalledWith(
-        "user-1",
-        dto,
-      );
+      expect(mockUsersService.deleteData).toHaveBeenCalledWith("user-1", dto);
     });
   });
 });

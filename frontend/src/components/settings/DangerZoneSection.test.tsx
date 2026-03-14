@@ -27,6 +27,7 @@ vi.mock('@/lib/errors', () => ({
 }));
 
 import { userSettingsApi } from '@/lib/user-settings';
+import { authApi } from '@/lib/auth';
 import toast from 'react-hot-toast';
 
 const localUser: User = {
@@ -203,6 +204,123 @@ describe('DangerZoneSection', () => {
       fireEvent.click(screen.getByLabelText('Accounts'));
 
       expect(screen.queryByText(/Account balances will be reset/)).not.toBeInTheDocument();
+    });
+
+    it('sends all selected optional flags to API', async () => {
+      (userSettingsApi.deleteData as ReturnType<typeof vi.fn>).mockResolvedValue({ deleted: { transactions: 10, accounts: 5, categories: 3, payees: 2 } });
+
+      render(<DangerZoneSection user={localUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+      fireEvent.click(screen.getByLabelText('Accounts'));
+      fireEvent.click(screen.getByLabelText('Categories'));
+      fireEvent.click(screen.getByLabelText('Payees'));
+      fireEvent.click(screen.getByLabelText('Currency preferences'));
+      fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'pass' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm Delete Data' }));
+
+      await waitFor(() => {
+        expect(userSettingsApi.deleteData).toHaveBeenCalledWith({
+          password: 'pass',
+          deleteAccounts: true,
+          deleteCategories: true,
+          deletePayees: true,
+          deleteExchangeRates: true,
+        });
+      });
+    });
+
+    it('shows error toast when deleteData fails', async () => {
+      (userSettingsApi.deleteData as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Server error'));
+
+      render(<DangerZoneSection user={localUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+      fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'pass' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm Delete Data' }));
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to delete data');
+      });
+    });
+
+    it('resets form after successful deletion', async () => {
+      (userSettingsApi.deleteData as ReturnType<typeof vi.fn>).mockResolvedValue({ deleted: { transactions: 5 } });
+
+      render(<DangerZoneSection user={localUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+      fireEvent.click(screen.getByLabelText('Accounts'));
+      fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'pass' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm Delete Data' }));
+
+      await waitFor(() => {
+        expect(toast.success).toHaveBeenCalled();
+      });
+
+      // Form should be hidden after success
+      expect(screen.queryByText(/The following will always be deleted/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete Data...' })).toBeInTheDocument();
+    });
+
+    it('triggers OIDC re-auth flow for OIDC-only users', () => {
+      render(<DangerZoneSection user={oidcUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Re-authenticate and Delete' }));
+
+      expect(authApi.initiateOidc).toHaveBeenCalled();
+    });
+
+    it('enables delete button when password is entered', () => {
+      render(<DangerZoneSection user={localUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Data...' }));
+      expect(screen.getByRole('button', { name: 'Confirm Delete Data' })).toBeDisabled();
+
+      fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'mypass' } });
+      expect(screen.getByRole('button', { name: 'Confirm Delete Data' })).not.toBeDisabled();
+    });
+  });
+
+  describe('Delete Account (OIDC)', () => {
+    it('calls deleteAccount with OIDC token for OIDC users', async () => {
+      (userSettingsApi.deleteAccount as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+      render(<DangerZoneSection user={oidcUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
+      fireEvent.change(screen.getByPlaceholderText('Type DELETE'), { target: { value: 'DELETE' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm Delete' }));
+
+      await waitFor(() => {
+        expect(userSettingsApi.deleteAccount).toHaveBeenCalledWith({ oidcIdToken: 'oidc-session-confirmed' });
+      });
+    });
+
+    it('enables delete button without password for OIDC users', () => {
+      render(<DangerZoneSection user={oidcUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
+      fireEvent.change(screen.getByPlaceholderText('Type DELETE'), { target: { value: 'DELETE' } });
+
+      // OIDC user doesn't need password, just DELETE text
+      expect(screen.getByRole('button', { name: 'Confirm Delete' })).not.toBeDisabled();
+    });
+
+    it('shows error toast when deleteAccount fails', async () => {
+      (userSettingsApi.deleteAccount as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Server error'));
+
+      render(<DangerZoneSection user={localUser} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Account' }));
+      fireEvent.change(screen.getByPlaceholderText('Type DELETE'), { target: { value: 'DELETE' } });
+      fireEvent.change(screen.getByPlaceholderText('Enter your password'), { target: { value: 'pass' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm Delete' }));
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to delete account');
+      });
     });
   });
 });

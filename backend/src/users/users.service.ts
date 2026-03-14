@@ -280,7 +280,10 @@ export class UsersService {
     await this.usersRepository.remove(user);
   }
 
-  async deleteData(userId: string, dto: DeleteDataDto): Promise<{ deleted: Record<string, number> }> {
+  async deleteData(
+    userId: string,
+    dto: DeleteDataDto,
+  ): Promise<{ deleted: Record<string, number> }> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException("User not found");
@@ -410,10 +413,9 @@ export class UsersService {
       deleted.transactions = result[1] ?? 0;
 
       // Tags (now that transaction_tags are gone)
-      result = await queryRunner.query(
-        "DELETE FROM tags WHERE user_id = $1",
-        [userId],
-      );
+      result = await queryRunner.query("DELETE FROM tags WHERE user_id = $1", [
+        userId,
+      ]);
       deleted.tags = result[1] ?? 0;
 
       // Scheduled transactions

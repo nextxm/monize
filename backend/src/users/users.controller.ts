@@ -3,7 +3,6 @@ import {
   Get,
   Patch,
   Post,
-  Delete,
   Body,
   UseGuards,
   Request,
@@ -88,7 +87,9 @@ export class UsersController {
   @Post("delete-account")
   @DemoRestricted()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Delete current user account with re-authentication" })
+  @ApiOperation({
+    summary: "Delete current user account with re-authentication",
+  })
   @ApiResponse({ status: 200, description: "Account deleted successfully" })
   @ApiResponse({ status: 401, description: "Invalid credentials" })
   async deleteAccount(@Request() req, @Body() dto: DeleteAccountDto) {
