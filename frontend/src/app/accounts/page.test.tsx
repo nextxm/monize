@@ -311,7 +311,7 @@ describe('AccountsPage', () => {
     });
   });
 
-  it('uses brokerage market values from portfolio summary', async () => {
+  it('uses brokerage market values from portfolio summary (holdings only, cash in linked account)', async () => {
     mockGetAll.mockResolvedValue([
       { id: 'acc-5', name: 'Brokerage', accountType: 'INVESTMENT', accountSubType: 'INVESTMENT_BROKERAGE', currencyCode: 'USD', currentBalance: 0, isClosed: false, canDelete: false },
     ]);
@@ -322,8 +322,8 @@ describe('AccountsPage', () => {
     });
     render(<AccountsPage />);
     await waitFor(() => {
-      // Brokerage value: 50000 + 5000 = 55000
-      expect(screen.getByTestId('summary-Total Assets')).toHaveTextContent('$55000.00');
+      // Brokerage value: 50000 (holdings only; cash balance is in the linked INVESTMENT_CASH account)
+      expect(screen.getByTestId('summary-Total Assets')).toHaveTextContent('$50000.00');
     });
   });
 
