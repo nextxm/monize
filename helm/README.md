@@ -20,16 +20,41 @@ Only the frontend is exposed externally via HTTPRoute or Ingress. The backend is
 
 ```bash
 # Install with default values (HTTPRoute enabled)
-helm install monize ./helm/monize -n monize --create-namespace
+helm install monize ./helm -n monize --create-namespace
 
 # Install with Ingress instead of HTTPRoute
-helm install monize ./helm/monize -n monize --create-namespace \
+helm install monize ./helm -n monize --create-namespace \
   --set httpRoute.enabled=false \
   --set ingress.enabled=true \
   --set ingress.className=nginx
 
 # Dry-run to preview rendered templates
-helm template monize ./helm/monize -n monize
+helm template monize ./helm -n monize
+```
+
+If you are deploying images from a fork or another GHCR namespace, override the
+image repositories at install time:
+
+```bash
+helm install monize ./helm -n monize --create-namespace \
+  --set backend.image.registry=ghcr.io \
+  --set backend.image.repository=your-github-username-or-org/monize-backend \
+  --set backend.image.tag=latest \
+  --set frontend.image.registry=ghcr.io \
+  --set frontend.image.repository=your-github-username-or-org/monize-frontend \
+  --set frontend.image.tag=latest
+```
+
+For prerelease images from a manual workflow publish, use the prerelease tag instead:
+
+```bash
+helm upgrade --install monize ./helm/ -n monize \
+  --set backend.image.registry=ghcr.io \
+  --set backend.image.repository=your-github-username-or-org/monize-backend \
+  --set backend.image.tag=prerelease-feature-branch \
+  --set frontend.image.registry=ghcr.io \
+  --set frontend.image.repository=your-github-username-or-org/monize-frontend \
+  --set frontend.image.tag=prerelease-feature-branch
 ```
 
 ## Routing Options
@@ -93,10 +118,10 @@ ingress:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `backend.image.registry` | Image registry | `registry.yourdomain.com` |
-| `backend.image.repository` | Image repository | `monize/backend` |
+| `backend.image.registry` | Image registry | `ghcr.io` |
+| `backend.image.repository` | Image repository | `kenlasko/monize-backend` |
 | `backend.image.tag` | Image tag | `latest` |
-| `backend.image.pullPolicy` | Image pull policy | `Always` |
+| `backend.image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `backend.replicas` | Number of replicas | `1` |
 | `backend.service.port` | Service port | `3001` |
 | `backend.service.type` | Service type | `ClusterIP` |
@@ -110,10 +135,10 @@ ingress:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `frontend.image.registry` | Image registry | `registry.yourdomain.com` |
-| `frontend.image.repository` | Image repository | `monize/frontend` |
+| `frontend.image.registry` | Image registry | `ghcr.io` |
+| `frontend.image.repository` | Image repository | `kenlasko/monize-frontend` |
 | `frontend.image.tag` | Image tag | `latest` |
-| `frontend.image.pullPolicy` | Image pull policy | `Always` |
+| `frontend.image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `frontend.replicas` | Number of replicas | `1` |
 | `frontend.service.port` | Service port | `3000` |
 | `frontend.service.type` | Service type | `ClusterIP` |
@@ -136,16 +161,16 @@ All containers enforce the `restricted` Pod Security Standard:
 
 ```bash
 # Lint the chart
-helm lint ./helm/monize
+helm lint ./helm
 
 # Render templates without deploying
-helm template monize ./helm/monize -n monize
+helm template monize ./helm -n monize
 
 # Dry-run install
-helm install monize ./helm/monize -n monize --dry-run
+helm install monize ./helm -n monize --dry-run
 
 # Test with Ingress instead of HTTPRoute
-helm template monize ./helm/monize -n monize \
+helm template monize ./helm -n monize \
   --set httpRoute.enabled=false \
   --set ingress.enabled=true \
   --set ingress.className=nginx

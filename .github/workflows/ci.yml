@@ -5,6 +5,13 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      publish_images:
+        description: Publish backend and frontend images to GHCR
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -151,7 +158,9 @@ jobs:
   build-and-push:
     name: Build & Push Containers
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_images == 'true')
     needs:
       [
         backend-lint,
@@ -173,16 +182,59 @@ jobs:
         with:
           node-version: 24
 
-      - name: Bump patch version
+      - name: Prepare release metadata
         id: version
         run: |
           CURRENT=$(node -p "require('./backend/package.json').version")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Bumping version: $CURRENT -> $NEW_VERSION"
-          cd backend  && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
-          cd frontend && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
+          OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          BACKEND_IMAGE="ghcr.io/${OWNER}/monize-backend"
+          FRONTEND_IMAGE="ghcr.io/${OWNER}/monize-frontend"
+          REF_SLUG=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g' | sed 's/--*/-/g' | sed 's/^-//; s/-$//' | cut -c1-40)
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            echo "is_final_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Bumping version: $CURRENT -> $NEW_VERSION"
+            cd backend  && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
+            cd frontend && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
+            BACKEND_TAGS=$(cat <<EOF
+${BACKEND_IMAGE}:latest
+${BACKEND_IMAGE}:${NEW_VERSION}
+EOF
+)
+            FRONTEND_TAGS=$(cat <<EOF
+${FRONTEND_IMAGE}:latest
+${FRONTEND_IMAGE}:${NEW_VERSION}
+EOF
+)
+          else
+            PRERELEASE_VERSION="${CURRENT}-pre-${REF_SLUG}-${SHORT_SHA}"
+            echo "is_final_release=false" >> "$GITHUB_OUTPUT"
+            echo "version=$PRERELEASE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Preparing prerelease images: $PRERELEASE_VERSION"
+            BACKEND_TAGS=$(cat <<EOF
+${BACKEND_IMAGE}:prerelease-${REF_SLUG}
+${BACKEND_IMAGE}:${PRERELEASE_VERSION}
+EOF
+)
+            FRONTEND_TAGS=$(cat <<EOF
+${FRONTEND_IMAGE}:prerelease-${REF_SLUG}
+${FRONTEND_IMAGE}:${PRERELEASE_VERSION}
+EOF
+)
+          fi
+
+          {
+            echo "backend_tags<<EOF"
+            echo "$BACKEND_TAGS"
+            echo "EOF"
+            echo "frontend_tags<<EOF"
+            echo "$FRONTEND_TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -212,9 +264,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           provenance: true
-          tags: |
-            ghcr.io/kenlasko/monize-backend:latest
-            ghcr.io/kenlasko/monize-backend:${{ steps.version.outputs.version }}
+          tags: ${{ steps.version.outputs.backend_tags }}
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
@@ -231,9 +281,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           provenance: true
-          tags: |
-            ghcr.io/kenlasko/monize-frontend:latest
-            ghcr.io/kenlasko/monize-frontend:${{ steps.version.outputs.version }}
+          tags: ${{ steps.version.outputs.frontend_tags }}
           build-args: |
             GIT_SHA=${{ steps.meta.outputs.git_sha }}
             BUILD_DATE=${{ steps.meta.outputs.build_date }}
@@ -242,6 +290,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Commit version bump
+        if: steps.version.outputs.is_final_release == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -251,6 +300,7 @@ jobs:
           git push
 
       - name: Create GitHub release
+        if: steps.version.outputs.is_final_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

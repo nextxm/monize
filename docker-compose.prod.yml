@@ -20,7 +20,7 @@ services:
 
   # Backend API (NestJS)
   backend:
-    image: ghcr.io/kenlasko/monize-backend:latest
+    image: ${BACKEND_IMAGE:-ghcr.io/${GHCR_OWNER:-kenlasko}/monize-backend:${BACKEND_TAG:-latest}}
     container_name: monize-backend
     restart: unless-stopped
     read_only: true
@@ -84,7 +84,7 @@ services:
 
   # Frontend (Next.js)
   frontend:
-    image: ghcr.io/kenlasko/monize-frontend:latest
+    image: ${FRONTEND_IMAGE:-ghcr.io/${GHCR_OWNER:-kenlasko}/monize-frontend:${FRONTEND_TAG:-latest}}
     container_name: monize-frontend
     restart: unless-stopped
     read_only: true

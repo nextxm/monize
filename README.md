@@ -364,6 +364,31 @@ cp .env.example .env
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+If you are deploying images published from a fork or another GHCR namespace,
+set the image owner and optional tags in `.env` before starting:
+
+```bash
+GHCR_OWNER=your-github-username-or-org
+BACKEND_TAG=latest
+FRONTEND_TAG=latest
+```
+
+For prerelease images published from a manual workflow run, set the branch-tagged
+prerelease tags explicitly, for example:
+
+```bash
+GHCR_OWNER=your-github-username-or-org
+BACKEND_TAG=prerelease-feature-branch
+FRONTEND_TAG=prerelease-feature-branch
+```
+
+You can also override the full image names directly:
+
+```bash
+BACKEND_IMAGE=ghcr.io/your-github-username-or-org/monize-backend:prerelease-feature-branch
+FRONTEND_IMAGE=ghcr.io/your-github-username-or-org/monize-frontend:prerelease-feature-branch
+```
+
 ### Kubernetes
 
 The application is Kubernetes-ready with:
@@ -386,7 +411,7 @@ Example environment for K8s:
 
 ## API Documentation
 
-Swagger UI is available at `/api/docs` in **development mode only** (disabled in production for security).
+Swagger UI is available at `/api/docs`.
 
 ### Key Endpoints
 
