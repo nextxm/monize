@@ -41,6 +41,14 @@ export class CsrfGuard implements CanActivate {
       return true;
     }
 
+    const authHeader = request.headers?.authorization;
+    if (
+      typeof authHeader === "string" &&
+      authHeader.startsWith("Bearer pat_")
+    ) {
+      return true;
+    }
+
     const cookieToken = request.cookies?.["csrf_token"];
     const headerToken = request.headers?.["x-csrf-token"];
 

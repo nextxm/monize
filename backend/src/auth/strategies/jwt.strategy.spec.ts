@@ -1,13 +1,17 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
 import { JwtStrategy } from "./jwt.strategy";
 import { AuthService } from "../auth.service";
+import { PatService } from "../pat.service";
 
 describe("JwtStrategy", () => {
   let strategy: JwtStrategy;
   let authService: Record<string, jest.Mock>;
   let configService: Record<string, jest.Mock>;
+  let patService: Record<string, jest.Mock>;
+  let jwtService: Record<string, jest.Mock>;
 
   const mockUser = {
     id: "user-1",
@@ -31,11 +35,21 @@ describe("JwtStrategy", () => {
       }),
     };
 
+    patService = {
+      validateToken: jest.fn(),
+    };
+
+    jwtService = {
+      verifyAsync: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtStrategy,
         { provide: AuthService, useValue: authService },
         { provide: ConfigService, useValue: configService },
+        { provide: PatService, useValue: patService },
+        { provide: JwtService, useValue: jwtService },
       ],
     }).compile();
 
@@ -53,7 +67,12 @@ describe("JwtStrategy", () => {
       };
 
       expect(() => {
-        new JwtStrategy(noSecretConfig as any, authService as any);
+        new JwtStrategy(
+          noSecretConfig as any,
+          authService as any,
+          patService as any,
+          jwtService as any,
+        );
       }).toThrow(
         "JWT_SECRET environment variable must be at least 32 characters",
       );
@@ -65,7 +84,12 @@ describe("JwtStrategy", () => {
       };
 
       expect(() => {
-        new JwtStrategy(shortSecretConfig as any, authService as any);
+        new JwtStrategy(
+          shortSecretConfig as any,
+          authService as any,
+          patService as any,
+          jwtService as any,
+        );
       }).toThrow(
         "JWT_SECRET environment variable must be at least 32 characters",
       );

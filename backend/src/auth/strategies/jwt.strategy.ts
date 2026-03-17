@@ -1,18 +1,23 @@
-import { ExtractJwt, Strategy } from "passport-jwt";
+import { Strategy } from "passport-strategy";
 import { PassportStrategy } from "@nestjs/passport";
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
 import { Request } from "express";
 import { AuthService } from "../auth.service";
+import { PatService } from "../pat.service";
 
 /**
- * Extract JWT from request - tries Authorization header first, then auth_token cookie
+ * Extract token from request - tries Authorization header first, then auth_token cookie
  */
-const extractJwtFromRequest = (req: Request): string | null => {
+const extractTokenFromRequest = (req: Request): string | null => {
   // Try Authorization header first (Bearer token)
-  const authHeader = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
-  if (authHeader) {
-    return authHeader;
+  const authorization = req.headers?.authorization;
+  if (typeof authorization === "string" && authorization.startsWith("Bearer ")) {
+    const bearerToken = authorization.slice(7).trim();
+    if (bearerToken) {
+      return bearerToken;
+    }
   }
 
   // Fall back to httpOnly cookie
@@ -25,9 +30,13 @@ const extractJwtFromRequest = (req: Request): string | null => {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly jwtSecret: string;
+
   constructor(
-    private configService: ConfigService,
+    configService: ConfigService,
     private authService: AuthService,
+    private patService: PatService,
+    private jwtService: JwtService,
   ) {
     const jwtSecret = configService.get<string>("JWT_SECRET");
 
@@ -40,11 +49,39 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
-    super({
-      jwtFromRequest: extractJwtFromRequest,
-      ignoreExpiration: false,
-      secretOrKey: jwtSecret,
-    });
+    super();
+    this.jwtSecret = jwtSecret;
+  }
+
+  async authenticate(req: Request): Promise<void> {
+    const token = extractTokenFromRequest(req);
+    if (!token) {
+      this.fail(new UnauthorizedException("No auth token"), 401);
+      return;
+    }
+
+    try {
+      if (token.startsWith("pat_")) {
+        const validatedToken = await this.patService.validateToken(token);
+        const user = await this.authService.getUserById(validatedToken.userId);
+
+        if (!user || !user.isActive) {
+          throw new UnauthorizedException("User not found or inactive");
+        }
+
+        this.success({ ...user, patScopes: validatedToken.scopes });
+        return;
+      }
+
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: this.jwtSecret,
+        algorithms: ["HS256"],
+      });
+      const user = await this.validate(payload);
+      this.success(user);
+    } catch {
+      this.fail(new UnauthorizedException("Invalid token"), 401);
+    }
   }
 
   async validate(payload: any) {

@@ -84,13 +84,11 @@ async function bootstrap() {
       : []),
   ].filter(Boolean);
 
-  const isProduction = process.env.NODE_ENV === "production";
   app.enableCors({
     origin: (origin, callback) => {
-      // Requests with no Origin header (server-to-server, curl, same-origin
-      // navigations): in production, reject to prevent null-origin abuse
-      // (e.g. sandboxed iframes). In dev, allow for convenience.
-      if (!origin) return callback(null, !isProduction);
+      // Requests with no Origin header are common for server-to-server and
+      // PAT-based clients (curl, MCP tools). Allow these in all environments.
+      if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
@@ -122,17 +120,15 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix("api/v1");
 
-  // Swagger documentation (disabled in production)
-  if (process.env.NODE_ENV !== "production") {
-    const config = new DocumentBuilder()
-      .setTitle("Monize API")
-      .setDescription("API for managing your personal finances via Monize")
-      .setVersion("1.0")
-      .addBearerAuth()
-      .build();
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup("api/docs", app, document);
-  }
+  // Swagger documentation
+  const config = new DocumentBuilder()
+    .setTitle("Monize API")
+    .setDescription("API for managing your personal finances via Monize")
+    .setVersion("1.0")
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup("api/docs", app, document);
 
   const logger = new Logger("Bootstrap");
   const port = process.env.PORT || 3001;
@@ -146,9 +142,7 @@ async function bootstrap() {
   server.headersTimeout = 605000; // must be > requestTimeout
 
   logger.log(`Application is running on: http://localhost:${port}`);
-  if (process.env.NODE_ENV !== "production") {
-    logger.log(`API Documentation: http://localhost:${port}/api/docs`);
-  }
+  logger.log(`API Documentation: http://localhost:${port}/api/docs`);
 }
 
 bootstrap();
