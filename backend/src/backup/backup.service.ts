@@ -54,142 +54,105 @@ export class BackupService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async exportData(userId: string): Promise<BackupData> {
+  async streamExport(userId: string, res: import("express").Response): Promise<void> {
     this.logger.log(`Starting backup export for user ${userId}`);
 
-    const backup: BackupData = {
-      version: BACKUP_VERSION,
-      exportedAt: new Date().toISOString(),
-      user_preferences: await this.query(
-        "SELECT * FROM user_preferences WHERE user_id = $1",
-        [userId],
-      ),
-      user_currency_preferences: await this.query(
-        "SELECT * FROM user_currency_preferences WHERE user_id = $1",
-        [userId],
-      ),
-      categories: await this.query(
-        "SELECT * FROM categories WHERE user_id = $1 ORDER BY parent_id NULLS FIRST, name",
-        [userId],
-      ),
-      payees: await this.query(
-        "SELECT * FROM payees WHERE user_id = $1 ORDER BY name",
-        [userId],
-      ),
-      payee_aliases: await this.query(
-        "SELECT * FROM payee_aliases WHERE user_id = $1",
-        [userId],
-      ),
-      accounts: await this.query(
-        "SELECT * FROM accounts WHERE user_id = $1 ORDER BY name",
-        [userId],
-      ),
-      tags: await this.query(
-        "SELECT * FROM tags WHERE user_id = $1 ORDER BY name",
-        [userId],
-      ),
-      transactions: await this.query(
-        "SELECT * FROM transactions WHERE user_id = $1 ORDER BY transaction_date, created_at",
-        [userId],
-      ),
-      transaction_splits: await this.query(
-        `SELECT ts.* FROM transaction_splits ts
-         JOIN transactions t ON ts.transaction_id = t.id
-         WHERE t.user_id = $1`,
-        [userId],
-      ),
-      transaction_tags: await this.query(
-        `SELECT tt.* FROM transaction_tags tt
-         JOIN transactions t ON tt.transaction_id = t.id
-         WHERE t.user_id = $1`,
-        [userId],
-      ),
-      transaction_split_tags: await this.query(
-        `SELECT tst.* FROM transaction_split_tags tst
-         JOIN transaction_splits ts ON tst.transaction_split_id = ts.id
-         JOIN transactions t ON ts.transaction_id = t.id
-         WHERE t.user_id = $1`,
-        [userId],
-      ),
-      scheduled_transactions: await this.query(
-        "SELECT * FROM scheduled_transactions WHERE user_id = $1",
-        [userId],
-      ),
-      scheduled_transaction_splits: await this.query(
-        `SELECT sts.* FROM scheduled_transaction_splits sts
-         JOIN scheduled_transactions st ON sts.scheduled_transaction_id = st.id
-         WHERE st.user_id = $1`,
-        [userId],
-      ),
-      scheduled_transaction_overrides: await this.query(
-        `SELECT sto.* FROM scheduled_transaction_overrides sto
-         JOIN scheduled_transactions st ON sto.scheduled_transaction_id = st.id
-         WHERE st.user_id = $1`,
-        [userId],
-      ),
-      securities: await this.query(
-        "SELECT * FROM securities WHERE user_id = $1",
-        [userId],
-      ),
-      security_prices: await this.query(
-        `SELECT sp.* FROM security_prices sp
-         JOIN securities s ON sp.security_id = s.id
-         WHERE s.user_id = $1`,
-        [userId],
-      ),
-      holdings: await this.query(
-        `SELECT h.* FROM holdings h
-         JOIN accounts a ON h.account_id = a.id
-         WHERE a.user_id = $1`,
-        [userId],
-      ),
-      investment_transactions: await this.query(
-        "SELECT * FROM investment_transactions WHERE user_id = $1",
-        [userId],
-      ),
-      budgets: await this.query(
-        "SELECT * FROM budgets WHERE user_id = $1",
-        [userId],
-      ),
-      budget_categories: await this.query(
-        `SELECT bc.* FROM budget_categories bc
-         JOIN budgets b ON bc.budget_id = b.id
-         WHERE b.user_id = $1`,
-        [userId],
-      ),
-      budget_periods: await this.query(
-        `SELECT bp.* FROM budget_periods bp
-         JOIN budgets b ON bp.budget_id = b.id
-         WHERE b.user_id = $1`,
-        [userId],
-      ),
-      budget_period_categories: await this.query(
-        `SELECT bpc.* FROM budget_period_categories bpc
-         JOIN budget_periods bp ON bpc.budget_period_id = bp.id
-         JOIN budgets b ON bp.budget_id = b.id
-         WHERE b.user_id = $1`,
-        [userId],
-      ),
-      budget_alerts: await this.query(
-        "SELECT * FROM budget_alerts WHERE user_id = $1",
-        [userId],
-      ),
-      custom_reports: await this.query(
-        "SELECT * FROM custom_reports WHERE user_id = $1",
-        [userId],
-      ),
-      import_column_mappings: await this.query(
-        "SELECT * FROM import_column_mappings WHERE user_id = $1",
-        [userId],
-      ),
-      monthly_account_balances: await this.query(
-        "SELECT * FROM monthly_account_balances WHERE user_id = $1",
-        [userId],
-      ),
-    };
+    const tableQueries: Array<{ key: string; sql: string }> = [
+      { key: "user_preferences", sql: "SELECT * FROM user_preferences WHERE user_id = $1" },
+      { key: "user_currency_preferences", sql: "SELECT * FROM user_currency_preferences WHERE user_id = $1" },
+      { key: "categories", sql: "SELECT * FROM categories WHERE user_id = $1 ORDER BY parent_id NULLS FIRST, name" },
+      { key: "payees", sql: "SELECT * FROM payees WHERE user_id = $1 ORDER BY name" },
+      { key: "payee_aliases", sql: "SELECT * FROM payee_aliases WHERE user_id = $1" },
+      { key: "accounts", sql: "SELECT * FROM accounts WHERE user_id = $1 ORDER BY name" },
+      { key: "tags", sql: "SELECT * FROM tags WHERE user_id = $1 ORDER BY name" },
+      {
+        key: "transactions",
+        sql: "SELECT * FROM transactions WHERE user_id = $1 ORDER BY transaction_date, created_at",
+      },
+      {
+        key: "transaction_splits",
+        sql: `SELECT ts.* FROM transaction_splits ts
+              JOIN transactions t ON ts.transaction_id = t.id
+              WHERE t.user_id = $1`,
+      },
+      {
+        key: "transaction_tags",
+        sql: `SELECT tt.* FROM transaction_tags tt
+              JOIN transactions t ON tt.transaction_id = t.id
+              WHERE t.user_id = $1`,
+      },
+      {
+        key: "transaction_split_tags",
+        sql: `SELECT tst.* FROM transaction_split_tags tst
+              JOIN transaction_splits ts ON tst.transaction_split_id = ts.id
+              JOIN transactions t ON ts.transaction_id = t.id
+              WHERE t.user_id = $1`,
+      },
+      { key: "scheduled_transactions", sql: "SELECT * FROM scheduled_transactions WHERE user_id = $1" },
+      {
+        key: "scheduled_transaction_splits",
+        sql: `SELECT sts.* FROM scheduled_transaction_splits sts
+              JOIN scheduled_transactions st ON sts.scheduled_transaction_id = st.id
+              WHERE st.user_id = $1`,
+      },
+      {
+        key: "scheduled_transaction_overrides",
+        sql: `SELECT sto.* FROM scheduled_transaction_overrides sto
+              JOIN scheduled_transactions st ON sto.scheduled_transaction_id = st.id
+              WHERE st.user_id = $1`,
+      },
+      { key: "securities", sql: "SELECT * FROM securities WHERE user_id = $1" },
+      {
+        key: "security_prices",
+        sql: `SELECT sp.* FROM security_prices sp
+              JOIN securities s ON sp.security_id = s.id
+              WHERE s.user_id = $1`,
+      },
+      {
+        key: "holdings",
+        sql: `SELECT h.* FROM holdings h
+              JOIN accounts a ON h.account_id = a.id
+              WHERE a.user_id = $1`,
+      },
+      { key: "investment_transactions", sql: "SELECT * FROM investment_transactions WHERE user_id = $1" },
+      { key: "budgets", sql: "SELECT * FROM budgets WHERE user_id = $1" },
+      {
+        key: "budget_categories",
+        sql: `SELECT bc.* FROM budget_categories bc
+              JOIN budgets b ON bc.budget_id = b.id
+              WHERE b.user_id = $1`,
+      },
+      {
+        key: "budget_periods",
+        sql: `SELECT bp.* FROM budget_periods bp
+              JOIN budgets b ON bp.budget_id = b.id
+              WHERE b.user_id = $1`,
+      },
+      {
+        key: "budget_period_categories",
+        sql: `SELECT bpc.* FROM budget_period_categories bpc
+              JOIN budget_periods bp ON bpc.budget_period_id = bp.id
+              JOIN budgets b ON bp.budget_id = b.id
+              WHERE b.user_id = $1`,
+      },
+      { key: "budget_alerts", sql: "SELECT * FROM budget_alerts WHERE user_id = $1" },
+      { key: "custom_reports", sql: "SELECT * FROM custom_reports WHERE user_id = $1" },
+      { key: "import_column_mappings", sql: "SELECT * FROM import_column_mappings WHERE user_id = $1" },
+      { key: "monthly_account_balances", sql: "SELECT * FROM monthly_account_balances WHERE user_id = $1" },
+    ];
+
+    // Stream JSON to the response one table at a time to avoid OOM
+    res.write(`{"version":${BACKUP_VERSION},"exportedAt":"${new Date().toISOString()}"`);
+
+    for (const { key, sql } of tableQueries) {
+      const rows = await this.query(sql, [userId]);
+      res.write(`,"${key}":${JSON.stringify(rows)}`);
+    }
+
+    res.write("}");
+    res.end();
 
     this.logger.log(`Backup export completed for user ${userId}`);
-    return backup;
   }
 
   async restoreData(

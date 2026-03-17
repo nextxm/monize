@@ -58,8 +58,17 @@ describe("BackupService", () => {
     service = module.get<BackupService>(BackupService);
   });
 
-  describe("exportData", () => {
-    it("should export all user data as a backup object", async () => {
+  describe("streamExport", () => {
+    let mockRes: { write: jest.Mock; end: jest.Mock };
+
+    beforeEach(() => {
+      mockRes = {
+        write: jest.fn(),
+        end: jest.fn(),
+      };
+    });
+
+    it("should stream all user data as JSON to the response", async () => {
       const mockCategories = [{ id: "cat-1", name: "Food", user_id: userId }];
       const mockAccounts = [{ id: "acc-1", name: "Checking", user_id: userId }];
 
@@ -71,24 +80,33 @@ describe("BackupService", () => {
         return Promise.resolve([]);
       });
 
-      const result = await service.exportData(userId);
+      await service.streamExport(userId, mockRes as any);
+
+      // Reconstruct the streamed JSON
+      const output = mockRes.write.mock.calls.map((c: unknown[]) => c[0]).join("");
+      const result = JSON.parse(output);
 
       expect(result.version).toBe(1);
       expect(result.exportedAt).toBeDefined();
       expect(result.categories).toEqual(mockCategories);
       expect(result.accounts).toEqual(mockAccounts);
+      expect(mockRes.end).toHaveBeenCalled();
       expect(mockDataSource.query).toHaveBeenCalled();
     });
 
-    it("should return empty arrays when user has no data", async () => {
+    it("should stream empty arrays when user has no data", async () => {
       mockDataSource.query.mockResolvedValue([]);
 
-      const result = await service.exportData(userId);
+      await service.streamExport(userId, mockRes as any);
+
+      const output = mockRes.write.mock.calls.map((c: unknown[]) => c[0]).join("");
+      const result = JSON.parse(output);
 
       expect(result.version).toBe(1);
       expect(result.categories).toEqual([]);
       expect(result.transactions).toEqual([]);
       expect(result.accounts).toEqual([]);
+      expect(mockRes.end).toHaveBeenCalled();
     });
   });
 

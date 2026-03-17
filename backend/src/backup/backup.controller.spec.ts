@@ -11,7 +11,7 @@ describe("BackupController", () => {
 
   beforeEach(async () => {
     mockBackupService = {
-      exportData: jest.fn(),
+      streamExport: jest.fn().mockResolvedValue(undefined),
       restoreData: jest.fn(),
     };
 
@@ -29,24 +29,19 @@ describe("BackupController", () => {
   });
 
   describe("exportBackup", () => {
-    it("should export backup and set response headers", async () => {
-      const mockBackup = { version: 1, exportedAt: "2026-01-01", categories: [] };
-      mockBackupService.exportData.mockResolvedValue(mockBackup);
-
+    it("should set response headers and delegate to streamExport", async () => {
       const mockRes = {
         setHeader: jest.fn(),
-        send: jest.fn(),
       };
 
       await controller.exportBackup(mockReq, mockRes as any);
 
-      expect(mockBackupService.exportData).toHaveBeenCalledWith(userId);
       expect(mockRes.setHeader).toHaveBeenCalledWith("Content-Type", "application/json");
       expect(mockRes.setHeader).toHaveBeenCalledWith(
         "Content-Disposition",
         expect.stringContaining("monize-backup-"),
       );
-      expect(mockRes.send).toHaveBeenCalled();
+      expect(mockBackupService.streamExport).toHaveBeenCalledWith(userId, mockRes);
     });
   });
 
