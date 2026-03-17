@@ -29,7 +29,7 @@ const extractTokenFromRequest = (req: Request): string | null => {
 };
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy) {
+export class JwtStrategy extends PassportStrategy(Strategy, "jwt") {
   private readonly jwtSecret: string;
 
   constructor(
