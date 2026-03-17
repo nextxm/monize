@@ -200,31 +200,15 @@ jobs:
             echo "Bumping version: $CURRENT -> $NEW_VERSION"
             cd backend  && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
             cd frontend && npm version "$NEW_VERSION" --no-git-tag-version && cd ..
-            BACKEND_TAGS=$(cat <<EOF
-${BACKEND_IMAGE}:latest
-${BACKEND_IMAGE}:${NEW_VERSION}
-EOF
-)
-            FRONTEND_TAGS=$(cat <<EOF
-${FRONTEND_IMAGE}:latest
-${FRONTEND_IMAGE}:${NEW_VERSION}
-EOF
-)
+            BACKEND_TAGS=$(printf '%s\n%s\n' "${BACKEND_IMAGE}:latest" "${BACKEND_IMAGE}:${NEW_VERSION}")
+            FRONTEND_TAGS=$(printf '%s\n%s\n' "${FRONTEND_IMAGE}:latest" "${FRONTEND_IMAGE}:${NEW_VERSION}")
           else
             PRERELEASE_VERSION="${CURRENT}-pre-${REF_SLUG}-${SHORT_SHA}"
             echo "is_final_release=false" >> "$GITHUB_OUTPUT"
             echo "version=$PRERELEASE_VERSION" >> "$GITHUB_OUTPUT"
             echo "Preparing prerelease images: $PRERELEASE_VERSION"
-            BACKEND_TAGS=$(cat <<EOF
-${BACKEND_IMAGE}:prerelease-${REF_SLUG}
-${BACKEND_IMAGE}:${PRERELEASE_VERSION}
-EOF
-)
-            FRONTEND_TAGS=$(cat <<EOF
-${FRONTEND_IMAGE}:prerelease-${REF_SLUG}
-${FRONTEND_IMAGE}:${PRERELEASE_VERSION}
-EOF
-)
+            BACKEND_TAGS=$(printf '%s\n%s\n' "${BACKEND_IMAGE}:prerelease-${REF_SLUG}" "${BACKEND_IMAGE}:${PRERELEASE_VERSION}")
+            FRONTEND_TAGS=$(printf '%s\n%s\n' "${FRONTEND_IMAGE}:prerelease-${REF_SLUG}" "${FRONTEND_IMAGE}:${PRERELEASE_VERSION}")
           fi
 
           {
